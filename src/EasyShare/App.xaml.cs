@@ -11,11 +11,21 @@ namespace EasyShare;
 /// </summary>
 public partial class App : Application
 {
+    private const string SingleInstanceMutexName = @"Local\EasyShare.SingleInstance";
+    private Mutex? _singleInstanceMutex;
+
     public static Window? MainWindow { get; private set; }
     public static bool StartMinimized { get; private set; }
 
     public App()
     {
+        if (!TryClaimSingleInstance())
+        {
+            StartupDiagnostics.Write("Another EasyShare instance is already running. Exiting duplicate process.");
+            Environment.Exit(0);
+            return;
+        }
+
         UnhandledException += App_UnhandledException;
         AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
         TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;
@@ -30,6 +40,20 @@ public partial class App : Application
         {
             StartupDiagnostics.Write("App XAML failed.", ex);
             throw;
+        }
+    }
+
+    private bool TryClaimSingleInstance()
+    {
+        try
+        {
+            _singleInstanceMutex = new Mutex(initiallyOwned: true, SingleInstanceMutexName, out var createdNew);
+            return createdNew;
+        }
+        catch (Exception ex)
+        {
+            StartupDiagnostics.Write("Could not create EasyShare single-instance mutex.", ex);
+            return true;
         }
     }
 

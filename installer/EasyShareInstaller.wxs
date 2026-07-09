@@ -3,7 +3,7 @@
   <Package
     Name="EasyShare"
     Manufacturer="Dual Tech Informatica"
-    Version="1.0.0.13"
+    Version="1.0.0.14"
     UpgradeCode="{7B00AF84-4271-4A25-9A05-8E0895459987}"
     Scope="perUser">
 
@@ -40,7 +40,7 @@
       </Component>
 
       <Component Id="AppPackageComponent" Directory="INSTALLFOLDER" Guid="{8A1F2B94-6067-4E83-B36F-4C5C69C1F56A}">
-        <File Id="AppPackage" Source="$(var.PayloadDir)\EasyShare_1.0.0.0_x64.msix" KeyPath="yes" />
+        <File Id="AppPackage" Source="$(var.PayloadDir)\$(var.AppPackageName)" KeyPath="yes" />
       </Component>
 
       <Component Id="CertificateComponent" Directory="INSTALLFOLDER" Guid="{1FE1D4F2-7BB8-46A7-A7A4-37687E566E25}">

@@ -98,6 +98,44 @@ public sealed class BrowserSessionService
         return await TestRouteAsync(route, coreWebView);
     }
 
+    public async Task<RouteTestResult> RestoreSessionAsync(IEnumerable<DriveRoute> routes, CoreWebView2 coreWebView)
+    {
+        var sharePointRoutes = routes
+            .Select(route => new
+            {
+                Route = route,
+                SharePointUri = TryGetSharePointUri(route)
+            })
+            .Where(item => item.SharePointUri is not null)
+            .ToArray();
+
+        if (sharePointRoutes.Length == 0)
+        {
+            return new RouteTestResult(true, AppText.Get("BrowserKeepAliveNoRoutes"));
+        }
+
+        var restoredRoutes = new List<DriveRoute>();
+        foreach (var item in sharePointRoutes)
+        {
+            var endpoint = BuildSharePointRestEndpoint(item.SharePointUri!);
+            var cookieHeader = await BuildCookieHeaderAsync(coreWebView, endpoint);
+            if (string.IsNullOrWhiteSpace(cookieHeader))
+            {
+                continue;
+            }
+
+            SharePointCookieStore.SetCookieHeader(endpoint, cookieHeader);
+            restoredRoutes.Add(item.Route);
+        }
+
+        if (restoredRoutes.Count == 0)
+        {
+            return new RouteTestResult(false, AppText.Get("BrowserRouteNeedLogin"));
+        }
+
+        return await TestRouteAsync(restoredRoutes[0], coreWebView);
+    }
+
     public void ClearSession(CoreWebView2 coreWebView)
     {
         coreWebView.CookieManager.DeleteAllCookies();
@@ -141,6 +179,14 @@ public sealed class BrowserSessionService
     {
         var siteRoot = sharePointUri.GetLeftPart(UriPartial.Path).TrimEnd('/');
         return new Uri($"{siteRoot}/_api/web?$select=Title");
+    }
+
+    private static Uri? TryGetSharePointUri(DriveRoute route)
+    {
+        return Uri.TryCreate(route.SharePointUrl, UriKind.Absolute, out var sharePointUri) &&
+               sharePointUri.Host.Contains("sharepoint.com", StringComparison.OrdinalIgnoreCase)
+            ? sharePointUri
+            : null;
     }
 
     private static async Task<string> BuildCookieHeaderAsync(CoreWebView2 coreWebView, Uri endpoint)

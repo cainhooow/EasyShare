@@ -65,7 +65,11 @@ public sealed partial class MainPage : Page
             _pageLoaded = true;
             StartupDiagnostics.Write("MainPage loaded.");
             await RunWithLoadingAsync(
-                ViewModel.LoadAsync,
+                async () =>
+                {
+                    await ViewModel.LoadAsync();
+                    await RestoreBrowserSessionOnStartupAsync();
+                },
                 "LoadingStartupTitle",
                 "LoadingStartupMessage");
             ApplyStartupWindowState();
@@ -372,6 +376,31 @@ public sealed partial class MainPage : Page
         catch (Exception ex)
         {
             StartupDiagnostics.Write("Automatic update check failed.", ex);
+        }
+    }
+
+    private async Task RestoreBrowserSessionOnStartupAsync()
+    {
+        if (!ViewModel.IsBrowserSessionMode || ViewModel.Routes.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await EnsureBrowserInitializedAsync(navigate: false);
+            var result = await _browserSessionService.RestoreSessionAsync(ViewModel.Routes, SessionWebView.CoreWebView2);
+            ViewModel.UpdateBrowserSessionStatus(result);
+            UpdateBrowserInfo(result);
+
+            if (result.Success)
+            {
+                await ViewModel.RefreshVirtualDriveAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            StartupDiagnostics.Write("Could not restore browser session on startup.", ex);
         }
     }
 

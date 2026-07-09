@@ -448,6 +448,12 @@ public sealed class MainPageViewModel : ObservableObject
         });
     }
 
+    public async Task RefreshVirtualDriveAsync()
+    {
+        _virtualDriveStatus = await _virtualDrive.GetStatusAsync(_settings, Routes);
+        RefreshState();
+    }
+
     public async Task SetAuthenticationModeAsync(AuthenticationMode mode)
     {
         _settings.AuthenticationMode = mode;

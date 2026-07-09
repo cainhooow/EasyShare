@@ -65,6 +65,7 @@ public sealed class AppUpdateService
         RepositoryName = ReadAssemblyMetadata("GitHubRepositoryName", "EasyShare");
 
         _httpClient = new HttpClient();
+        _httpClient.Timeout = TimeSpan.FromSeconds(20);
         _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("EasyShare-Updater", "1.0"));
         _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
     }
@@ -97,10 +98,7 @@ public sealed class AppUpdateService
 
         try
         {
-            using var request = new HttpRequestMessage(
-                HttpMethod.Get,
-                $"https://api.github.com/repos/{RepositoryOwner}/{RepositoryName}/releases/latest");
-            using var response = await _httpClient.SendAsync(request, cancellationToken);
+            using var response = await GetLatestReleaseResponseAsync(cancellationToken);
 
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
@@ -179,13 +177,39 @@ public sealed class AppUpdateService
         {
             throw;
         }
-        catch
+        catch (Exception ex)
         {
+            StartupDiagnostics.Write("Update check failed.", ex);
             return new AppUpdateStatus(
                 AppText.Get("UpdateStatusErrorTitle"),
                 AppText.Format("UpdateStatusErrorMessage", RepositoryFullName),
                 InfoBarSeverity.Warning);
         }
+    }
+
+    private async Task<HttpResponseMessage> GetLatestReleaseResponseAsync(CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            try
+            {
+                using var request = new HttpRequestMessage(
+                    HttpMethod.Get,
+                    $"https://api.github.com/repos/{RepositoryOwner}/{RepositoryName}/releases/latest");
+                request.Headers.CacheControl = new CacheControlHeaderValue { NoCache = true };
+                return await _httpClient.SendAsync(request, cancellationToken);
+            }
+            catch (Exception) when (attempt == 0 && !cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(350), cancellationToken);
+            }
+        }
+
+        using var finalRequest = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"https://api.github.com/repos/{RepositoryOwner}/{RepositoryName}/releases/latest");
+        finalRequest.Headers.CacheControl = new CacheControlHeaderValue { NoCache = true };
+        return await _httpClient.SendAsync(finalRequest, cancellationToken);
     }
 
     public async Task<string> DownloadUpdateAsync(

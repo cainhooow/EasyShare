@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Reflection;
 
 const string installScript = "Install-EasyShare.ps1";
+const string appPackageName = "EasyShare_1.0.0.14_x64.msix";
 
 var tempRoot = Path.Combine(Path.GetTempPath(), "EasyShareSetup-" + Guid.NewGuid().ToString("N"));
 var logRoot = Path.Combine(Path.GetTempPath(), "EasyShareInstallerLogs");
@@ -94,7 +95,7 @@ static void ExtractPayload(string targetDirectory)
         {
             fileName = resourceName.Contains("WindowsAppRuntime", StringComparison.OrdinalIgnoreCase)
                 ? "Microsoft.WindowsAppRuntime.2.msix"
-                : "EasyShare_1.0.0.0_x64.msix";
+                : appPackageName;
         }
         else if (resourceName.EndsWith(".cer", StringComparison.OrdinalIgnoreCase))
         {

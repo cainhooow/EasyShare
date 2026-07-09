@@ -13,9 +13,13 @@ public sealed class StartupService
     public async Task<bool> IsEnabledAsync()
     {
         var startupTask = await TryGetPackagedStartupTaskAsync();
-        return startupTask is not null
-            ? startupTask.State == StartupTaskState.Enabled
-            : IsRegistryEnabled();
+        if (startupTask is not null)
+        {
+            RemoveRegistryStartupValue();
+            return startupTask.State == StartupTaskState.Enabled;
+        }
+
+        return IsRegistryEnabled();
     }
 
     public async Task<bool> SetEnabledAsync(bool enabled, bool startMinimized)
@@ -23,6 +27,7 @@ public sealed class StartupService
         var startupTask = await TryGetPackagedStartupTaskAsync();
         if (startupTask is not null)
         {
+            RemoveRegistryStartupValue();
             return enabled
                 ? await EnablePackagedStartupTaskAsync(startupTask)
                 : DisablePackagedStartupTask(startupTask);
@@ -93,6 +98,12 @@ public sealed class StartupService
         }
 
         key.SetValue(AppName, BuildStartupCommand(startMinimized));
+    }
+
+    private static void RemoveRegistryStartupValue()
+    {
+        using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: true);
+        key?.DeleteValue(AppName, throwOnMissingValue: false);
     }
 
     private static string BuildStartupCommand(bool startMinimized) =>
