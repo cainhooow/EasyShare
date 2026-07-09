@@ -81,8 +81,14 @@
                     x:Name="HomeContent"
                     HorizontalAlignment="Stretch"
                     Spacing="14">
-                    <StackPanel Spacing="6">
-                        <TextBlock Style="{ThemeResource TitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=AppName}" />
+                    <StackPanel Spacing="8">
+                        <Image
+                            Width="320"
+                            Height="82"
+                            HorizontalAlignment="Left"
+                            AutomationProperties.Name="{Binding Source={StaticResource Text}, Path=AppName}"
+                            Source="Assets/LogoText.png"
+                            Stretch="Uniform" />
                         <TextBlock
                             Style="{ThemeResource BodyTextBlockStyle}"
                             Text="{Binding Source={StaticResource Text}, Path=HomeSubtitle}"
@@ -505,7 +511,14 @@
                     Width="{Binding ActualWidth, ElementName=AboutView}"
                     HorizontalAlignment="Stretch"
                     Spacing="18">
-                    <StackPanel Spacing="4">
+                    <StackPanel Spacing="8">
+                        <Image
+                            Width="280"
+                            Height="72"
+                            HorizontalAlignment="Left"
+                            AutomationProperties.Name="{Binding Source={StaticResource Text}, Path=AppName}"
+                            Source="Assets/LogoText.png"
+                            Stretch="Uniform" />
                         <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=AboutTitle}" />
                         <TextBlock Text="{Binding Source={StaticResource Text}, Path=AboutIntro}" TextWrapping="Wrap" />
                     </StackPanel>

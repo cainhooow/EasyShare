@@ -33,7 +33,7 @@
                 Width="16"
                 Height="16"
                 VerticalAlignment="Center"
-                Source="Assets/AppIcon.ico" />
+                Source="Assets/LogoIcon.png" />
             <TextBlock
                 Grid.Column="1"
                 VerticalAlignment="Center"

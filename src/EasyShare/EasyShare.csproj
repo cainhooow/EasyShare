@@ -27,6 +27,8 @@
       <_Parameter2>$(GitHubRepositoryName)</_Parameter2>
     </AssemblyAttribute>
     <EmbeddedResource Include="Resources\AppStrings.xml" />
+    <Content Include="Assets\LogoIcon.png" />
+    <Content Include="Assets\LogoText.png" />
     <Content Include="Assets\SplashScreen.scale-200.png" />
     <Content Include="Assets\LockScreenLogo.scale-200.png" />
     <Content Include="Assets\Square150x150Logo.scale-200.png" />
