@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "EasyShare (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "EasyShare (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Name="EasyShare"
+    Manufacturer="Dual Tech Informatica"
+    Version="1.0.0.13"
+    UpgradeCode="{7B00AF84-4271-4A25-9A05-8E0895459987}"
+    Scope="perUser">
+
+    <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="Uma versao mais recente do EasyShare ja esta instalada." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Feature Id="MainFeature" Title="EasyShare" Level="1">
+      <ComponentGroupRef Id="PayloadComponents" />
+    </Feature>
+
+    <CustomAction
+      Id="RunEasyShareInstall"
+      Directory="INSTALLFOLDER"
+      ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]Install-EasyShare.ps1&quot; -NoLaunch -SkipWinFspInstall"
+      Return="check" />
+
+    <InstallExecuteSequence>
+      <Custom Action="RunEasyShareInstall" After="InstallFinalize" Condition="NOT REMOVE" />
+    </InstallExecuteSequence>
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="INSTALLFOLDER" Name="EasyShareInstaller">
+        <Directory Id="DEPENDENCIESFOLDER" Name="Dependencies">
+          <Directory Id="DEPENDENCIESX64FOLDER" Name="x64" />
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="PayloadComponents">
+      <Component Id="InstallScriptComponent" Directory="INSTALLFOLDER" Guid="{53E7ED93-85FD-47D8-A05D-20D79D80C116}">
+        <File Id="InstallScript" Source="$(var.PayloadDir)\Install-EasyShare.ps1" KeyPath="yes" />
+      </Component>
+
+      <Component Id="AppPackageComponent" Directory="INSTALLFOLDER" Guid="{8A1F2B94-6067-4E83-B36F-4C5C69C1F56A}">
+        <File Id="AppPackage" Source="$(var.PayloadDir)\EasyShare_1.0.0.0_x64.msix" KeyPath="yes" />
+      </Component>
+
+      <Component Id="CertificateComponent" Directory="INSTALLFOLDER" Guid="{1FE1D4F2-7BB8-46A7-A7A4-37687E566E25}">
+        <File Id="Certificate" Source="$(var.PayloadDir)\EasyShare_TestCertificate.cer" KeyPath="yes" />
+      </Component>
+
+      <Component Id="WinFspInstallerComponent" Directory="INSTALLFOLDER" Guid="{7059E7D9-AD03-4F2E-888E-2BA1515AE869}">
+        <File Id="WinFspInstaller" Source="$(var.PayloadDir)\winfsp-2.1.25156.msi" KeyPath="yes" />
+      </Component>
+
+      <Component Id="WindowsAppRuntimeComponent" Directory="DEPENDENCIESX64FOLDER" Guid="{C5AEDE2E-CE79-4C88-99E2-39A7B7089A03}">
+        <File Id="WindowsAppRuntime" Source="$(var.PayloadDir)\Dependencies\x64\Microsoft.WindowsAppRuntime.2.msix" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+    <AssemblyName>EasyShareSetup</AssemblyName>
+    <RootNamespace>EasyShareSetup</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\dist\payload-exe\Install-EasyShare.ps1" LogicalName="Install-EasyShare.ps1" />
+    <EmbeddedResource Include="..\..\dist\payload-exe\EasyShare_1.0.0.0_x64.msix" LogicalName="EasyShare_1.0.0.0_x64.msix" />
+    <EmbeddedResource Include="..\..\dist\payload-exe\EasyShare_TestCertificate.cer" LogicalName="EasyShare_TestCertificate.cer" />
+    <EmbeddedResource Include="..\..\dist\payload-exe\Microsoft.WindowsAppRuntime.2.msix" LogicalName="Microsoft.WindowsAppRuntime.2.msix" />
+    <EmbeddedResource Include="..\..\dist\payload-exe\winfsp-2.1.25156.msi" LogicalName="winfsp-2.1.25156.msi" />
+  </ItemGroup>
+</Project>

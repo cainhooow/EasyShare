@@ -1,0 +1,23 @@
+bin/
+obj/
+**/bin/
+**/obj/
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.pdb
+*.pfx
+
+# Build and packaging outputs. Publish these through GitHub Releases instead.
+dist/
+dist-test/
+**/dist-test/
+*.msix
+*.msixbundle
+*.appx
+*.appxbundle
+*.wixpdb

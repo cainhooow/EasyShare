@@ -1,0 +1,781 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="EasyShare.MainPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:EasyShare"
+    xmlns:models="using:EasyShare.Models"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:resources="using:EasyShare.Resources"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+    DataContext="{x:Bind ViewModel}"
+    Loaded="Page_Loaded"
+    mc:Ignorable="d">
+
+    <Page.Resources>
+        <resources:TextProvider x:Key="Text" />
+    </Page.Resources>
+
+    <NavigationView
+        x:Name="RootNavigation"
+        CompactPaneLength="48"
+        IsBackButtonVisible="Collapsed"
+        IsPaneToggleButtonVisible="True"
+        IsSettingsVisible="False"
+        OpenPaneLength="260"
+        PaneDisplayMode="Auto"
+        SelectionChanged="RootNavigation_SelectionChanged">
+        <NavigationView.MenuItems>
+            <NavigationViewItem
+                Content="{Binding Source={StaticResource Text}, Path=NavHome}"
+                IsSelected="True"
+                Tag="Home">
+                <NavigationViewItem.Icon>
+                    <SymbolIcon Symbol="Home" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem Content="{Binding Source={StaticResource Text}, Path=NavRoutes}" Tag="Routes">
+                <NavigationViewItem.Icon>
+                    <SymbolIcon Symbol="Folder" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem Content="{Binding Source={StaticResource Text}, Path=NavSync}" Tag="Sync">
+                <NavigationViewItem.Icon>
+                    <SymbolIcon Symbol="Sync" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem Content="{Binding Source={StaticResource Text}, Path=NavBrowser}" Tag="Browser">
+                <NavigationViewItem.Icon>
+                    <SymbolIcon Symbol="Contact" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem Content="{Binding Source={StaticResource Text}, Path=NavHelp}" Tag="Help">
+                <NavigationViewItem.Icon>
+                    <SymbolIcon Symbol="Help" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem Content="{Binding Source={StaticResource Text}, Path=NavAbout}" Tag="About">
+                <NavigationViewItem.Icon>
+                    <FontIcon Glyph="&#xE946;" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem Content="{Binding Source={StaticResource Text}, Path=NavSettings}" Tag="Settings">
+                <NavigationViewItem.Icon>
+                    <SymbolIcon Symbol="Setting" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+        </NavigationView.MenuItems>
+
+        <Grid
+            x:Name="ContentHost"
+            Padding="24,16,24,24"
+            SizeChanged="ContentHost_SizeChanged">
+            <ScrollViewer
+                x:Name="HomeView"
+                HorizontalScrollBarVisibility="Disabled"
+                HorizontalScrollMode="Disabled"
+                VerticalScrollBarVisibility="Auto"
+                VerticalScrollMode="Auto">
+                <StackPanel
+                    x:Name="HomeContent"
+                    HorizontalAlignment="Stretch"
+                    Spacing="14">
+                    <StackPanel Spacing="6">
+                        <TextBlock Style="{ThemeResource TitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=AppName}" />
+                        <TextBlock
+                            Style="{ThemeResource BodyTextBlockStyle}"
+                            Text="{Binding Source={StaticResource Text}, Path=HomeSubtitle}"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <InfoBar
+                        IsClosable="False"
+                        IsOpen="True"
+                        Message="{Binding ConnectionMessage}"
+                        Severity="{Binding ConnectionSeverity}"
+                        Title="{Binding ConnectionTitle}" />
+
+                    <CommandBar
+                        Background="Transparent"
+                        DefaultLabelPosition="Right"
+                        HorizontalAlignment="Stretch"
+                        Margin="0,-4,0,-6">
+                        <AppBarButton Click="SignInButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionSignIn}">
+                            <AppBarButton.Icon>
+                                <SymbolIcon Symbol="Contact" />
+                            </AppBarButton.Icon>
+                        </AppBarButton>
+                        <AppBarButton Click="AddRouteButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionAddRoute}">
+                            <AppBarButton.Icon>
+                                <SymbolIcon Symbol="Add" />
+                            </AppBarButton.Icon>
+                        </AppBarButton>
+                        <AppBarButton
+                            Click="OpenVirtualDriveButton_Click"
+                            IsEnabled="{Binding CanOpenInExplorer}"
+                            Label="{Binding Source={StaticResource Text}, Path=ActionOpenDrive}">
+                            <AppBarButton.Icon>
+                                <SymbolIcon Symbol="OpenFile" />
+                            </AppBarButton.Icon>
+                        </AppBarButton>
+                        <AppBarButton Click="RefreshButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionRefresh}">
+                            <AppBarButton.Icon>
+                                <SymbolIcon Symbol="Refresh" />
+                            </AppBarButton.Icon>
+                        </AppBarButton>
+                    </CommandBar>
+
+                    <Grid
+                        x:Name="SummaryCards"
+                        ColumnSpacing="12"
+                        RowSpacing="12">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <Border
+                            x:Name="AccountCard"
+                            Padding="18"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8">
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=CardAccount}" />
+                                <TextBlock
+                                    Style="{ThemeResource SubtitleTextBlockStyle}"
+                                    Text="{Binding AccountName}"
+                                    TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border
+                            x:Name="VirtualRootCard"
+                            Grid.Column="1"
+                            Padding="18"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8">
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=CardVirtualDrive}" />
+                                <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding VirtualRoot}" />
+                                <TextBlock
+                                    Style="{ThemeResource CaptionTextBlockStyle}"
+                                    Text="{Binding VirtualDriveState}"
+                                    TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border
+                            x:Name="RoutesCountCard"
+                            Grid.Column="2"
+                            Padding="18"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8">
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=CardRoutes}" />
+                                <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding ConnectedRouteCount}" />
+                                <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=RoutesConnected}" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <StackPanel Spacing="8">
+                        <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=RoutesFixedTitle}" />
+                        <ListView
+                            ItemsSource="{Binding Routes}"
+                            SelectionMode="None"
+                            Visibility="{Binding RoutesListVisibility}">
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="models:DriveRoute">
+                                    <Grid Padding="0,8" ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Spacing="2">
+                                            <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="{x:Bind DisplayName}" />
+                                            <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind VirtualPath}" />
+                                            <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind StatusText}" />
+                                        </StackPanel>
+                                    <Button
+                                        Grid.Column="1"
+                                        Click="TestRouteButton_Click"
+                                        Tag="{x:Bind Id}">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <SymbolIcon Symbol="Accept" />
+                                                <TextBlock Text="{Binding Source={StaticResource Text}, Path=ActionTest}" />
+                                            </StackPanel>
+                                        </Button>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                        <Border
+                            Padding="18"
+                            Background="{ThemeResource LayerFillColorDefaultBrush}"
+                            CornerRadius="8"
+                            Visibility="{Binding EmptyRoutesVisibility}">
+                            <StackPanel Spacing="8">
+                                <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=EmptyRoutesTitle}" />
+                                <TextBlock Text="{Binding Source={StaticResource Text}, Path=EmptyRoutesHomeMessage}" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+
+            <Grid x:Name="RoutesView" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <CommandBar DefaultLabelPosition="Right">
+                    <AppBarButton Click="AddRouteButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionAdd}">
+                        <AppBarButton.Icon>
+                            <SymbolIcon Symbol="Add" />
+                        </AppBarButton.Icon>
+                    </AppBarButton>
+                    <AppBarButton Click="RefreshButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionRefresh}">
+                        <AppBarButton.Icon>
+                            <SymbolIcon Symbol="Refresh" />
+                        </AppBarButton.Icon>
+                    </AppBarButton>
+                </CommandBar>
+
+                <ListView
+                    Grid.Row="1"
+                    ItemsSource="{Binding Routes}"
+                    SelectionMode="None"
+                    Visibility="{Binding RoutesListVisibility}">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="models:DriveRoute">
+                            <Grid Padding="0,12" ColumnSpacing="16">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="2*" />
+                                    <ColumnDefinition Width="3*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Spacing="3">
+                                    <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="{x:Bind DisplayName}" />
+                                    <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind VirtualPath}" />
+                                    <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind LastCheckedText}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Spacing="3">
+                                    <TextBlock Text="{x:Bind SharePointUrl}" TextWrapping="Wrap" />
+                                    <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind RemotePath}" />
+                                    <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind StatusText}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+                                    <Button Click="TestRouteButton_Click" Tag="{x:Bind Id}">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <SymbolIcon Symbol="Accept" />
+                                            <TextBlock Text="{Binding Source={StaticResource Text}, Path=ActionTest}" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Click="EditRouteButton_Click" Tag="{x:Bind Id}">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <SymbolIcon Symbol="Edit" />
+                                            <TextBlock Text="{Binding Source={StaticResource Text}, Path=ActionEdit}" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Click="RemoveRouteButton_Click" Tag="{x:Bind Id}">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <SymbolIcon Symbol="Delete" />
+                                            <TextBlock Text="{Binding Source={StaticResource Text}, Path=ActionRemove}" />
+                                        </StackPanel>
+                                    </Button>
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+                <Border
+                    Grid.Row="1"
+                    Padding="22"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Top"
+                    Background="{ThemeResource LayerFillColorDefaultBrush}"
+                    CornerRadius="8"
+                    Visibility="{Binding EmptyRoutesVisibility}">
+                    <StackPanel Spacing="12">
+                        <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=EmptyRoutesTitle}" />
+                        <TextBlock
+                            Text="{Binding Source={StaticResource Text}, Path=EmptyRoutesMessage}"
+                            TextWrapping="Wrap" />
+                        <Button Click="AddRouteButton_Click" HorizontalAlignment="Left">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <SymbolIcon Symbol="Add" />
+                                <TextBlock Text="{Binding Source={StaticResource Text}, Path=ActionAddRoute}" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <Grid x:Name="SyncView" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=SyncTitle}" />
+                <ListView
+                    Grid.Row="1"
+                    ItemsSource="{Binding SyncJobs}"
+                    SelectionMode="None"
+                    Visibility="{Binding SyncListVisibility}">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="models:SyncJob">
+                            <Grid Padding="0,12" ColumnSpacing="16">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="180" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Spacing="3">
+                                    <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="{x:Bind FileName}" />
+                                    <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind RouteDisplayName}" />
+                                    <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind UpdatedText}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Spacing="6">
+                                    <TextBlock Text="{x:Bind StateText}" />
+                                    <ProgressBar Maximum="100" Value="{x:Bind Progress}" />
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+                <Border
+                    Grid.Row="1"
+                    Padding="22"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Top"
+                    Background="{ThemeResource LayerFillColorDefaultBrush}"
+                    CornerRadius="8"
+                    Visibility="{Binding EmptySyncVisibility}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=EmptySyncTitle}" />
+                        <TextBlock
+                            Text="{Binding Source={StaticResource Text}, Path=EmptySyncMessage}"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <Grid x:Name="BrowserView" RowSpacing="12" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <StackPanel Spacing="4">
+                    <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=BrowserTitle}" />
+                    <TextBlock
+                        Text="{Binding Source={StaticResource Text}, Path=BrowserSubtitle}"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+
+                <InfoBar
+                    x:Name="BrowserInfoBar"
+                    Grid.Row="1"
+                    IsClosable="False"
+                    IsOpen="True"
+                    Message="{Binding Source={StaticResource Text}, Path=BrowserInfoMessage}"
+                    Severity="Informational"
+                    Title="{Binding Source={StaticResource Text}, Path=BrowserInfoTitle}" />
+
+                <Grid Grid.Row="2" ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox
+                        x:Name="BrowserAddressBox"
+                        PlaceholderText="{Binding Source={StaticResource Text}, Path=BrowserAddressPlaceholder}"
+                        KeyDown="BrowserAddressBox_KeyDown" />
+                    <CommandBar
+                        Grid.Column="1"
+                        Background="Transparent"
+                        DefaultLabelPosition="Right">
+                        <AppBarButton Click="BrowserBackButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionBack}">
+                            <AppBarButton.Icon>
+                                <SymbolIcon Symbol="Back" />
+                            </AppBarButton.Icon>
+                        </AppBarButton>
+                        <AppBarButton Click="BrowserForwardButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionForward}">
+                            <AppBarButton.Icon>
+                                <SymbolIcon Symbol="Forward" />
+                            </AppBarButton.Icon>
+                        </AppBarButton>
+                        <AppBarButton Click="BrowserGoButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionGo}">
+                            <AppBarButton.Icon>
+                                <SymbolIcon Symbol="Forward" />
+                            </AppBarButton.Icon>
+                        </AppBarButton>
+                        <AppBarButton Click="BrowserRefreshButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionRefresh}">
+                            <AppBarButton.Icon>
+                                <SymbolIcon Symbol="Refresh" />
+                            </AppBarButton.Icon>
+                        </AppBarButton>
+                        <AppBarButton Click="PinCurrentFolderButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionPinCurrent}">
+                            <AppBarButton.Icon>
+                                <SymbolIcon Symbol="Add" />
+                            </AppBarButton.Icon>
+                        </AppBarButton>
+                        <AppBarButton Click="VerifyBrowserSessionButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionVerifyLogin}">
+                            <AppBarButton.Icon>
+                                <SymbolIcon Symbol="Accept" />
+                            </AppBarButton.Icon>
+                        </AppBarButton>
+                        <AppBarButton Click="ClearBrowserSessionButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionClearLogin}">
+                            <AppBarButton.Icon>
+                                <SymbolIcon Symbol="Delete" />
+                            </AppBarButton.Icon>
+                        </AppBarButton>
+                    </CommandBar>
+                </Grid>
+
+                <WebView2
+                    x:Name="SessionWebView"
+                    Grid.Row="3"
+                    NavigationCompleted="SessionWebView_NavigationCompleted"
+                    MinHeight="420" />
+            </Grid>
+
+            <ScrollViewer
+                x:Name="HelpView"
+                HorizontalScrollBarVisibility="Disabled"
+                HorizontalScrollMode="Disabled"
+                VerticalScrollBarVisibility="Auto"
+                VerticalScrollMode="Auto"
+                Visibility="Collapsed">
+                <StackPanel
+                    Width="{Binding ActualWidth, ElementName=HelpView}"
+                    HorizontalAlignment="Stretch"
+                    Spacing="14">
+                    <StackPanel Spacing="4">
+                        <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=HelpTitle}" />
+                        <TextBlock Text="{Binding Source={StaticResource Text}, Path=HelpIntro}" TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <Expander Header="{Binding Source={StaticResource Text}, Path=HelpQuestionAccessMode}">
+                        <TextBlock Text="{Binding Source={StaticResource Text}, Path=HelpAnswerAccessMode}" TextWrapping="Wrap" />
+                    </Expander>
+                    <Expander Header="{Binding Source={StaticResource Text}, Path=HelpQuestionKeepConnected}">
+                        <TextBlock Text="{Binding Source={StaticResource Text}, Path=HelpAnswerKeepConnected}" TextWrapping="Wrap" />
+                    </Expander>
+                    <Expander Header="{Binding Source={StaticResource Text}, Path=HelpQuestionPinFolder}">
+                        <TextBlock Text="{Binding Source={StaticResource Text}, Path=HelpAnswerPinFolder}" TextWrapping="Wrap" />
+                    </Expander>
+                    <Expander Header="{Binding Source={StaticResource Text}, Path=HelpQuestionDriveMissing}">
+                        <TextBlock Text="{Binding Source={StaticResource Text}, Path=HelpAnswerDriveMissing}" TextWrapping="Wrap" />
+                    </Expander>
+                    <Expander Header="{Binding Source={StaticResource Text}, Path=HelpQuestionEditFolder}">
+                        <TextBlock Text="{Binding Source={StaticResource Text}, Path=HelpAnswerEditFolder}" TextWrapping="Wrap" />
+                    </Expander>
+                    <Expander Header="{Binding Source={StaticResource Text}, Path=HelpQuestionTray}">
+                        <TextBlock Text="{Binding Source={StaticResource Text}, Path=HelpAnswerTray}" TextWrapping="Wrap" />
+                    </Expander>
+                    <Expander Header="{Binding Source={StaticResource Text}, Path=HelpQuestionReset}">
+                        <TextBlock Text="{Binding Source={StaticResource Text}, Path=HelpAnswerReset}" TextWrapping="Wrap" />
+                    </Expander>
+                </StackPanel>
+            </ScrollViewer>
+
+            <ScrollViewer
+                x:Name="AboutView"
+                HorizontalScrollBarVisibility="Disabled"
+                HorizontalScrollMode="Disabled"
+                VerticalScrollBarVisibility="Auto"
+                VerticalScrollMode="Auto"
+                Visibility="Collapsed">
+                <StackPanel
+                    Width="{Binding ActualWidth, ElementName=AboutView}"
+                    HorizontalAlignment="Stretch"
+                    Spacing="18">
+                    <StackPanel Spacing="4">
+                        <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=AboutTitle}" />
+                        <TextBlock Text="{Binding Source={StaticResource Text}, Path=AboutIntro}" TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <Grid ColumnSpacing="16" RowSpacing="12">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="220" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=AboutVersionLabel}" />
+                        <TextBlock Grid.Column="1" Text="{Binding AppVersion}" TextWrapping="Wrap" />
+
+                        <TextBlock Grid.Row="1" Style="{ThemeResource BodyStrongTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=AboutDeveloperLabel}" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Source={StaticResource Text}, Path=AboutDeveloperName}" TextWrapping="Wrap" />
+                    </Grid>
+
+                    <StackPanel Spacing="10">
+                        <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=AboutUpdatesTitle}" />
+                        <InfoBar
+                            IsClosable="False"
+                            IsOpen="True"
+                            Message="{Binding UpdateStatusMessage}"
+                            Severity="{Binding UpdateStatusSeverity}"
+                            Title="{Binding UpdateStatusTitle}" />
+                        <ProgressBar
+                            Maximum="100"
+                            Minimum="0"
+                            IsIndeterminate="{Binding IsUpdateProgressIndeterminate}"
+                            Value="{Binding UpdateProgressValue}"
+                            Visibility="{Binding UpdateProgressVisibility}" />
+                        <TextBlock
+                            Style="{ThemeResource CaptionTextBlockStyle}"
+                            Text="{Binding UpdateProgressText}"
+                            TextWrapping="Wrap"
+                            Visibility="{Binding UpdateProgressVisibility}" />
+                        <CommandBar
+                            Background="Transparent"
+                            DefaultLabelPosition="Right">
+                            <AppBarButton
+                                Click="CheckUpdatesButton_Click"
+                                IsEnabled="{Binding CanCheckForUpdates}"
+                                Label="{Binding Source={StaticResource Text}, Path=ActionCheckUpdates}">
+                                <AppBarButton.Icon>
+                                    <SymbolIcon Symbol="Refresh" />
+                                </AppBarButton.Icon>
+                            </AppBarButton>
+                            <AppBarButton
+                                Click="DownloadUpdateButton_Click"
+                                IsEnabled="{Binding CanDownloadUpdate}"
+                                Label="{Binding Source={StaticResource Text}, Path=ActionDownloadUpdate}"
+                                Visibility="{Binding DownloadUpdateButtonVisibility}">
+                                <AppBarButton.Icon>
+                                    <SymbolIcon Symbol="Download" />
+                                </AppBarButton.Icon>
+                            </AppBarButton>
+                            <AppBarButton
+                                Click="InstallUpdateButton_Click"
+                                IsEnabled="{Binding CanInstallUpdate}"
+                                Label="{Binding Source={StaticResource Text}, Path=ActionInstallUpdate}"
+                                Visibility="{Binding InstallUpdateButtonVisibility}">
+                                <AppBarButton.Icon>
+                                    <SymbolIcon Symbol="OpenFile" />
+                                </AppBarButton.Icon>
+                            </AppBarButton>
+                            <AppBarButton
+                                Click="OpenUpdateReleaseButton_Click"
+                                IsEnabled="{Binding CanDownloadUpdate}"
+                                Label="{Binding Source={StaticResource Text}, Path=ActionOpenRelease}"
+                                Visibility="{Binding DownloadUpdateButtonVisibility}">
+                                <AppBarButton.Icon>
+                                    <SymbolIcon Symbol="Link" />
+                                </AppBarButton.Icon>
+                            </AppBarButton>
+                        </CommandBar>
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+
+            <ScrollViewer
+                x:Name="SettingsView"
+                HorizontalScrollBarVisibility="Disabled"
+                HorizontalScrollMode="Disabled"
+                VerticalScrollBarVisibility="Auto"
+                VerticalScrollMode="Auto"
+                Visibility="Collapsed">
+                <StackPanel
+                    Width="{Binding ActualWidth, ElementName=SettingsView}"
+                    HorizontalAlignment="Stretch"
+                    Spacing="18">
+                <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=SettingsTitle}" />
+                <InfoBar
+                    IsClosable="False"
+                    IsOpen="True"
+                    Message="{Binding SettingsMessage}"
+                    Severity="Informational"
+                    Title="{Binding Source={StaticResource Text}, Path=SettingsStatusTitle}" />
+                <ComboBox
+                    Header="{Binding Source={StaticResource Text}, Path=SettingsAccessModeHeader}"
+                    SelectedIndex="{Binding AuthenticationModeIndex, Mode=TwoWay}">
+                    <ComboBoxItem Content="{Binding Source={StaticResource Text}, Path=SettingsAccessModeBrowser}" />
+                    <ComboBoxItem Content="{Binding Source={StaticResource Text}, Path=SettingsAccessModeGraph}" />
+                </ComboBox>
+                <TextBlock
+                    Style="{ThemeResource CaptionTextBlockStyle}"
+                    Text="{Binding Source={StaticResource Text}, Path=SettingsAccessModeHelp}"
+                    TextWrapping="Wrap" />
+                <TextBox
+                    Header="{Binding Source={StaticResource Text}, Path=SettingsClientIdHeader}"
+                    IsEnabled="{Binding IsGraphAuthMode}"
+                    PlaceholderText="{Binding Source={StaticResource Text}, Path=SettingsClientIdPlaceholder}"
+                    Text="{Binding ClientId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                <TextBox
+                    Header="{Binding Source={StaticResource Text}, Path=SettingsTenantHeader}"
+                    IsEnabled="{Binding IsGraphAuthMode}"
+                    PlaceholderText="{Binding Source={StaticResource Text}, Path=SettingsTenantPlaceholder}"
+                    Text="{Binding TenantId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                <TextBlock
+                    Style="{ThemeResource CaptionTextBlockStyle}"
+                    Text="{Binding Source={StaticResource Text}, Path=SettingsClientIdHelp}"
+                    TextWrapping="Wrap" />
+                <InfoBar
+                    IsClosable="False"
+                    IsOpen="True"
+                    Message="{Binding VirtualDriveDetail}"
+                    Severity="Informational"
+                    Title="{Binding VirtualDriveState}" />
+                <ToggleSwitch
+                    Header="{Binding Source={StaticResource Text}, Path=SettingsStartWithWindows}"
+                    IsOn="{Binding StartWithWindows, Mode=TwoWay}" />
+                <ToggleSwitch
+                    Header="{Binding Source={StaticResource Text}, Path=SettingsStartMinimized}"
+                    IsOn="{Binding StartMinimized, Mode=TwoWay}" />
+                <ToggleSwitch
+                    Header="{Binding Source={StaticResource Text}, Path=SettingsAutoDrive}"
+                    IsOn="{Binding AutoStartVirtualDrive, Mode=TwoWay}" />
+                <TextBox
+                    Header="{Binding Source={StaticResource Text}, Path=SettingsBrowserStartUrl}"
+                    PlaceholderText="{Binding Source={StaticResource Text}, Path=SettingsBrowserStartUrlPlaceholder}"
+                    Text="{Binding BrowserSessionStartUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                <ToggleSwitch
+                    Header="{Binding Source={StaticResource Text}, Path=SettingsKeepLogin}"
+                    IsOn="{Binding BrowserKeepSessionAlive, Mode=TwoWay}" />
+                <NumberBox
+                    Header="{Binding Source={StaticResource Text}, Path=SettingsKeepLoginInterval}"
+                    Minimum="5"
+                    Maximum="240"
+                    SmallChange="5"
+                    SpinButtonPlacementMode="Inline"
+                    Value="{Binding BrowserKeepAliveMinutes, Mode=TwoWay}" />
+                <TextBox
+                    Header="{Binding Source={StaticResource Text}, Path=SettingsMountPoint}"
+                    PlaceholderText="{Binding Source={StaticResource Text}, Path=SettingsMountPointPlaceholder}"
+                    Text="{Binding MountPoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                <NumberBox
+                    Header="{Binding Source={StaticResource Text}, Path=SettingsCacheMinutes}"
+                    Minimum="1"
+                    Maximum="1440"
+                    SmallChange="1"
+                    SpinButtonPlacementMode="Inline"
+                    Value="{Binding CacheMinutes, Mode=TwoWay}" />
+                <TextBox
+                    Header="{Binding Source={StaticResource Text}, Path=SettingsDatabase}"
+                    IsReadOnly="True"
+                    Text="{Binding DatabasePath}" />
+                <TextBox
+                    Header="{Binding Source={StaticResource Text}, Path=SettingsVirtualRoot}"
+                    IsReadOnly="True"
+                    Text="{Binding VirtualRoot}" />
+                <CommandBar
+                    Background="Transparent"
+                    DefaultLabelPosition="Right">
+                    <AppBarButton Click="SaveSettingsButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionSaveSettings}">
+                        <AppBarButton.Icon>
+                            <SymbolIcon Symbol="Save" />
+                        </AppBarButton.Icon>
+                    </AppBarButton>
+                    <AppBarButton
+                        Click="OpenBrowserSessionButton_Click"
+                        Label="{Binding Source={StaticResource Text}, Path=ActionOpenLogin}">
+                        <AppBarButton.Icon>
+                            <SymbolIcon Symbol="Contact" />
+                        </AppBarButton.Icon>
+                    </AppBarButton>
+                    <AppBarButton
+                        Click="OpenVirtualDriveButton_Click"
+                        IsEnabled="{Binding CanOpenInExplorer}"
+                        Label="{Binding Source={StaticResource Text}, Path=ActionOpenDrive}">
+                        <AppBarButton.Icon>
+                            <SymbolIcon Symbol="OpenFile" />
+                        </AppBarButton.Icon>
+                    </AppBarButton>
+                    <AppBarButton Click="SignInButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionSignIn}">
+                        <AppBarButton.Icon>
+                            <SymbolIcon Symbol="Contact" />
+                        </AppBarButton.Icon>
+                    </AppBarButton>
+                    <AppBarButton Click="SignOutButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionSignOut}">
+                        <AppBarButton.Icon>
+                            <SymbolIcon Symbol="Cancel" />
+                        </AppBarButton.Icon>
+                    </AppBarButton>
+                </CommandBar>
+                <StackPanel Spacing="8">
+                    <TextBlock
+                        Style="{ThemeResource CaptionTextBlockStyle}"
+                        Text="{Binding Source={StaticResource Text}, Path=SettingsResetHelp}"
+                        TextWrapping="Wrap" />
+                    <Button
+                        HorizontalAlignment="Left"
+                        Background="{ThemeResource SystemFillColorCriticalBrush}"
+                        Click="ResetAppButton_Click"
+                        Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <SymbolIcon Symbol="Delete" />
+                            <TextBlock Text="{Binding Source={StaticResource Text}, Path=ActionResetApp}" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+
+            <InfoBar
+                x:Name="ActionInfoBar"
+                Margin="0,0,0,12"
+                MaxWidth="620"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Top"
+                IsClosable="True"
+                IsOpen="False"
+                Severity="Success" />
+
+            <Grid
+                x:Name="LoadingOverlay"
+                Background="#99000000"
+                Visibility="Collapsed">
+                <Border
+                    Padding="24"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8">
+                    <StackPanel Spacing="12" HorizontalAlignment="Center">
+                        <ProgressRing
+                            x:Name="LoadingRing"
+                            Width="42"
+                            Height="42"
+                            HorizontalAlignment="Center"
+                            IsActive="False" />
+                        <TextBlock
+                            x:Name="LoadingTitleText"
+                            HorizontalAlignment="Center"
+                            Style="{ThemeResource BodyStrongTextBlockStyle}"
+                            Text="{Binding Source={StaticResource Text}, Path=LoadingTitle}" />
+                        <TextBlock
+                            x:Name="LoadingMessageText"
+                            MaxWidth="320"
+                            HorizontalAlignment="Center"
+                            Text="{Binding Source={StaticResource Text}, Path=LoadingMessage}"
+                            TextAlignment="Center"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Grid>
+    </NavigationView>
+</Page>
