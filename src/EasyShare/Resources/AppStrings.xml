@@ -135,17 +135,17 @@
     <x:String x:Key="UpdateStatusDownloadTitle">Baixando atualização</x:String>
     <x:String x:Key="UpdateStatusDownloadMessage">Baixando a versão {0}.</x:String>
     <x:String x:Key="UpdateStatusDownloadedTitle">Atualização pronta</x:String>
-    <x:String x:Key="UpdateStatusDownloadedMessage">Download concluído. Abra o instalador e reinicie o EasyShare quando terminar.</x:String>
+    <x:String x:Key="UpdateStatusDownloadedMessage">Download concluído. Abra o instalador; ele pode solicitar permissão de administrador para concluir a atualização.</x:String>
     <x:String x:Key="UpdateStatusDownloadErrorTitle">Falha no download</x:String>
     <x:String x:Key="UpdateStatusDownloadErrorMessage">Não foi possível baixar o instalador. Tente novamente mais tarde.</x:String>
     <x:String x:Key="UpdateStatusInstallStartedTitle">Instalador aberto</x:String>
-    <x:String x:Key="UpdateStatusInstallStartedMessage">Conclua a instalação, feche o EasyShare se solicitado e abra o app novamente.</x:String>
+    <x:String x:Key="UpdateStatusInstallStartedMessage">Confirme a permissão de administrador se o Windows solicitar, conclua a instalação e abra o EasyShare novamente.</x:String>
     <x:String x:Key="UpdateStatusInstallBlockedTitle">Instalação não iniciada</x:String>
     <x:String x:Key="UpdateStatusInstallBlockedMessage">O instalador não pôde ser aberto ou a permissão foi cancelada.</x:String>
     <x:String x:Key="UpdateProgressReadyFormat">Pronto para baixar {0} ({1}).</x:String>
     <x:String x:Key="UpdateProgressIndeterminateFormat">Baixando... {0} recebidos.</x:String>
     <x:String x:Key="UpdateProgressFormat">Baixando {0:0}% - {1} de {2}.</x:String>
-    <x:String x:Key="UpdateProgressDownloadedFormat">Arquivo baixado: {0}. Reinicie o EasyShare após instalar.</x:String>
+    <x:String x:Key="UpdateProgressDownloadedFormat">Arquivo baixado e salvo: {0}. Pronto para instalar.</x:String>
 
     <x:String x:Key="LoadingTitle">Aplicando mudanças...</x:String>
     <x:String x:Key="LoadingMessage">Só um instante.</x:String>

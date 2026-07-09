@@ -497,10 +497,7 @@ public sealed class MainPageViewModel : ObservableObject
             _availableUpdate = _updateStatus.Update;
             if (_availableUpdate is not null)
             {
-                UpdateProgressText = AppText.Format(
-                    "UpdateProgressReadyFormat",
-                    _availableUpdate.AssetName,
-                    FormatBytes(_availableUpdate.AssetSizeBytes));
+                UseDownloadedUpdateIfAvailable(_availableUpdate);
             }
 
             RefreshUpdateState();
@@ -523,6 +520,12 @@ public sealed class MainPageViewModel : ObservableObject
         {
             IsDownloadingUpdate = true;
             _downloadedUpdatePath = null;
+            if (UseDownloadedUpdateIfAvailable(_availableUpdate))
+            {
+                RefreshUpdateState();
+                return;
+            }
+
             _updateStatus = new AppUpdateStatus(
                 AppText.Get("UpdateStatusDownloadTitle"),
                 AppText.Format("UpdateStatusDownloadMessage", _availableUpdate.VersionText),
@@ -769,6 +772,29 @@ public sealed class MainPageViewModel : ObservableObject
                 FormatBytes(progress.BytesReceived),
                 FormatBytes(progress.TotalBytes.GetValueOrDefault()));
         OnPropertyChanged(nameof(UpdateProgressVisibility));
+    }
+
+    private bool UseDownloadedUpdateIfAvailable(AppUpdateInfo update)
+    {
+        if (!_appUpdateService.TryGetDownloadedUpdatePath(update, out var downloadedPath))
+        {
+            UpdateProgressText = AppText.Format(
+                "UpdateProgressReadyFormat",
+                update.AssetName,
+                FormatBytes(update.AssetSizeBytes));
+            return false;
+        }
+
+        _downloadedUpdatePath = downloadedPath;
+        UpdateProgressValue = 100;
+        IsUpdateProgressIndeterminate = false;
+        UpdateProgressText = AppText.Format("UpdateProgressDownloadedFormat", Path.GetFileName(downloadedPath));
+        _updateStatus = new AppUpdateStatus(
+            AppText.Get("UpdateStatusDownloadedTitle"),
+            AppText.Get("UpdateStatusDownloadedMessage"),
+            InfoBarSeverity.Warning,
+            update);
+        return true;
     }
 
     private void RefreshUpdateCommandState()

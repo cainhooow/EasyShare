@@ -218,12 +218,19 @@ public sealed class AppUpdateService
         CancellationToken cancellationToken = default)
     {
         _paths.EnsureCreated();
-        var updatesDirectory = Path.Combine(_paths.DataDirectory, "Updates");
+        var updatesDirectory = GetUpdateDirectory(update);
         Directory.CreateDirectory(updatesDirectory);
 
-        var safeAssetName = SanitizeFileName(update.AssetName);
-        var targetPath = Path.Combine(updatesDirectory, safeAssetName);
-        var temporaryPath = Path.Combine(updatesDirectory, $"{safeAssetName}.download");
+        var targetPath = GetDownloadedUpdatePath(update);
+        if (TryUseExistingDownload(update, targetPath))
+        {
+            var existingLength = new FileInfo(targetPath).Length;
+            progress?.Report(new AppUpdateProgress(existingLength, update.AssetSizeBytes > 0 ? update.AssetSizeBytes : existingLength));
+            return targetPath;
+        }
+
+        var temporaryPath = $"{targetPath}.download";
+        TryDeleteFile(temporaryPath);
 
         using var response = await _httpClient.GetAsync(
             update.DownloadUrl,
@@ -262,6 +269,12 @@ public sealed class AppUpdateService
         return targetPath;
     }
 
+    public bool TryGetDownloadedUpdatePath(AppUpdateInfo update, out string downloadedPath)
+    {
+        downloadedPath = GetDownloadedUpdatePath(update);
+        return TryUseExistingDownload(update, downloadedPath);
+    }
+
     public bool TryStartInstaller(string installerPath)
     {
         if (!File.Exists(installerPath))
@@ -273,9 +286,9 @@ public sealed class AppUpdateService
         {
             Process.Start(new ProcessStartInfo
             {
-                FileName = installerPath,
-                UseShellExecute = true,
-                Verb = "runas"
+                FileName = Path.GetFullPath(installerPath),
+                WorkingDirectory = Path.GetDirectoryName(Path.GetFullPath(installerPath)) ?? string.Empty,
+                UseShellExecute = true
             });
             return true;
         }
@@ -356,6 +369,49 @@ public sealed class AppUpdateService
         }
 
         return int.MaxValue;
+    }
+
+    private string GetUpdateDirectory(AppUpdateInfo update)
+    {
+        var updateFolderName = SanitizeFileName(string.IsNullOrWhiteSpace(update.TagName)
+            ? update.VersionText
+            : update.TagName);
+        return Path.Combine(_paths.DataDirectory, "Updates", updateFolderName);
+    }
+
+    private string GetDownloadedUpdatePath(AppUpdateInfo update) =>
+        Path.Combine(GetUpdateDirectory(update), SanitizeFileName(update.AssetName));
+
+    private static bool TryUseExistingDownload(AppUpdateInfo update, string path)
+    {
+        if (!File.Exists(path))
+        {
+            return false;
+        }
+
+        var fileInfo = new FileInfo(path);
+        if (update.AssetSizeBytes > 0 && fileInfo.Length != update.AssetSizeBytes)
+        {
+            TryDeleteFile(path);
+            return false;
+        }
+
+        return fileInfo.Length > 0;
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+            // A locked partial download is harmless; the next attempt can overwrite it if available.
+        }
     }
 
     private static string SanitizeFileName(string fileName)

@@ -9,7 +9,7 @@ $ErrorActionPreference = "Stop"
 
 $root = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $cacheRoot = Join-Path $env:ProgramData "EasyShare\InstallerCache"
-$packageName = "EasyShare_1.0.0.15_x64.msix"
+$packageName = "EasyShare_1.0.0.16_x64.msix"
 $package = Join-Path $root $packageName
 $certificate = Join-Path $root "EasyShare_TestCertificate.cer"
 $dependency = Join-Path $root "Dependencies\x64\Microsoft.WindowsAppRuntime.2.msix"
