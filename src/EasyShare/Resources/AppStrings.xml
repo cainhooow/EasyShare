@@ -30,6 +30,7 @@
     <x:String x:Key="ActionPinCurrent">Fixar pasta atual</x:String>
     <x:String x:Key="ActionVerifyLogin">Verificar login</x:String>
     <x:String x:Key="ActionClearLogin">Limpar login</x:String>
+    <x:String x:Key="ActionTrimWebViewCache">Liberar cache da WebView</x:String>
     <x:String x:Key="ActionResetApp">Resetar EasyShare</x:String>
     <x:String x:Key="TrayOpen">Abrir EasyShare</x:String>
     <x:String x:Key="TrayExit">Sair</x:String>
@@ -289,6 +290,8 @@
     <x:String x:Key="BrowserRouteStatusFormat">SharePoint respondeu {0}.</x:String>
     <x:String x:Key="BrowserRouteUnavailable">Não deu para acessar agora.</x:String>
     <x:String x:Key="BrowserKeepAliveNoRoutes">Login pronto. Fixe uma pasta para começar.</x:String>
+    <x:String x:Key="WebViewCacheClearedTitle">Cache da WebView liberado</x:String>
+    <x:String x:Key="WebViewCacheClearedMessage">Caches temporários foram removidos sem apagar o login salvo.</x:String>
 
     <x:String x:Key="GraphSignInBeforeTest">Entre com sua conta antes de testar.</x:String>
     <x:String x:Key="GraphUnexpectedResponse">Resposta inesperada da Microsoft.</x:String>

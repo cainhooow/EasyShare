@@ -3,7 +3,9 @@ param(
     [string]$ExePath,
     [string]$MsiPath,
     [string]$CertificateThumbprint = $env:EASYSHARE_SIGNING_CERT_THUMBPRINT,
-    [string]$SignToolPath = ""
+    [string]$SignToolPath = "",
+    [string]$TimestampUrl = $env:EASYSHARE_SIGNING_TIMESTAMP_URL,
+    [switch]$RequireTrustedSignature
 )
 
 $ErrorActionPreference = "Stop"
@@ -62,17 +64,26 @@ foreach ($asset in $assets) {
     }
 
     Write-Host "Assinando $($asset.Label): $resolvedPath"
-    & $SignToolPath sign /fd SHA256 /sha1 $normalizedThumbprint /d "EasyShare" $resolvedPath
+    $signArguments = @("sign", "/fd", "SHA256", "/sha1", $normalizedThumbprint, "/d", "EasyShare")
+    if (-not [string]::IsNullOrWhiteSpace($TimestampUrl)) {
+        $signArguments += @("/tr", $TimestampUrl, "/td", "SHA256")
+    }
+    $signArguments += $resolvedPath
+    & $SignToolPath @signArguments
     if ($LASTEXITCODE -ne 0) {
         throw "Falha ao assinar $($asset.Label)."
     }
 
-    if ($asset.Label -eq "MSIX") {
-        $signature = Get-AuthenticodeSignature -FilePath $resolvedPath
-        if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
-            throw "A assinatura do MSIX nao foi validada: $($signature.StatusMessage)"
-        }
+    $signature = Get-AuthenticodeSignature -FilePath $resolvedPath
+    if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+        throw "A assinatura do $($asset.Label) nao foi validada: $($signature.StatusMessage)"
+    }
+
+    & $SignToolPath verify /pa /all $resolvedPath
+    if ($LASTEXITCODE -ne 0 -and $RequireTrustedSignature) {
+        throw "A cadeia de confianca do $($asset.Label) nao foi validada pelo signtool /pa."
     }
 }
 
-Write-Host "Artefatos assinados com $($certificate.Subject) ($normalizedThumbprint)."
+$timestampMessage = if ([string]::IsNullOrWhiteSpace($TimestampUrl)) { "sem timestamp" } else { "timestamp $TimestampUrl" }
+Write-Host "Artefatos assinados com $($certificate.Subject) ($normalizedThumbprint; $timestampMessage)."

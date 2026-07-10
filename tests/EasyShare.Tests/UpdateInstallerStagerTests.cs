@@ -9,7 +9,7 @@ public sealed class UpdateInstallerStagerTests
     public void Stage_CopiesInstallerToTemporaryExecutionDirectory()
     {
         var root = Path.Combine(Path.GetTempPath(), "EasyShareTests", Guid.NewGuid().ToString("N"));
-        var sourceDirectory = Path.Combine(root, "Updates", "v1.0.0.21");
+        var sourceDirectory = Path.Combine(root, "Updates", "v1.0.0.22");
         var sourcePath = Path.Combine(sourceDirectory, "EasyShareSetup.exe");
         Directory.CreateDirectory(sourceDirectory);
         File.WriteAllBytes(sourcePath, [1, 2, 3, 4]);

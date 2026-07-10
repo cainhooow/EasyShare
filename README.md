@@ -211,7 +211,7 @@ Use o certificado de code signing disponível no repositório local de certifica
 
 ```powershell
 .\scripts\Sign-EasyShareArtifacts.ps1 `
-  -MsixPath .\dist\package\EasyShare_1.0.0.21_x64.msix `
+  -MsixPath .\dist\package\EasyShare_1.0.0.22_x64.msix `
   -CertificateThumbprint B3BF66137620B35E9AAB46642B8790C7DBFB8273
 ```
 
@@ -219,7 +219,7 @@ Depois de assinar o MSIX, copie-o para os payloads e gere os instaladores. Assin
 
 ```powershell
 .\scripts\Sign-EasyShareArtifacts.ps1 `
-  -MsixPath .\dist\payload-exe\EasyShare_1.0.0.21_x64.msix `
+  -MsixPath .\dist\payload-exe\EasyShare_1.0.0.22_x64.msix `
   -ExePath .\dist\EasyShareSetup.exe `
   -MsiPath .\dist\EasyShareSetup.msi `
   -CertificateThumbprint B3BF66137620B35E9AAB46642B8790C7DBFB8273
@@ -237,7 +237,7 @@ dotnet build .\src\EasyShare\EasyShare.csproj `
 
 ### Publicar uma release
 
-Antes de publicar, adicione em `CHANGELOG.md` uma seção com a versão exata do `Package.appxmanifest`, por exemplo `## [1.0.0.21] - 2026-07-10`, descrevendo o que mudou. O script bloqueia a publicação quando essa seção não existe ou está vazia.
+Antes de publicar, adicione em `CHANGELOG.md` uma seção com a versão exata do `Package.appxmanifest`, por exemplo `## [1.0.0.22] - 2026-07-10`, descrevendo o que mudou. O script bloqueia a publicação quando essa seção não existe ou está vazia.
 
 Depois de gerar os instaladores em `dist/`, use o script abaixo. É necessário ter o GitHub CLI instalado e autenticado com `gh auth login`.
 
