@@ -249,7 +249,7 @@ public sealed partial class MainPage : Page
 
         if (tag != "Browser" && _browserInitialized)
         {
-            _ = TrimBrowserCacheAsync();
+            _ = PrepareBrowserForBackgroundAsync();
         }
 
         if (tag == "Browser")

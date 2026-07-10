@@ -144,7 +144,11 @@ public sealed class AppUpdateService
                     InfoBarSeverity.Success);
             }
 
-            var asset = SelectInstallerAsset(release.Assets, currentVersion, latestVersion);
+            var asset = SelectInstallerAsset(
+                release.Assets,
+                currentVersion,
+                latestVersion,
+                HasCachedPackage(currentVersion));
             if (asset is null ||
                 string.IsNullOrWhiteSpace(asset.Name) ||
                 string.IsNullOrWhiteSpace(asset.BrowserDownloadUrl) ||
@@ -397,20 +401,25 @@ public sealed class AppUpdateService
     private static GitHubReleaseAssetResponse? SelectInstallerAsset(
         IReadOnlyList<GitHubReleaseAssetResponse>? assets,
         Version currentVersion,
-        Version latestVersion) =>
+        Version latestVersion,
+        bool hasCachedPackage) =>
         assets?
             .Where(asset => !string.IsNullOrWhiteSpace(asset.BrowserDownloadUrl))
             .Select(asset => new
             {
                 Asset = asset,
-                Preference = AssetPreference(asset.Name, currentVersion, latestVersion)
+                Preference = AssetPreference(asset.Name, currentVersion, latestVersion, hasCachedPackage)
             })
             .Where(candidate => candidate.Preference < int.MaxValue)
             .OrderBy(candidate => candidate.Preference)
             .Select(candidate => candidate.Asset)
             .FirstOrDefault();
 
-    private static int AssetPreference(string? assetName, Version currentVersion, Version latestVersion)
+    private static int AssetPreference(
+        string? assetName,
+        Version currentVersion,
+        Version latestVersion,
+        bool hasCachedPackage)
     {
         if (string.IsNullOrWhiteSpace(assetName))
         {
@@ -418,7 +427,7 @@ public sealed class AppUpdateService
         }
 
         var name = assetName.ToLowerInvariant();
-        if (IsIncrementalAssetForVersion(name, currentVersion, latestVersion))
+        if (hasCachedPackage && IsIncrementalAssetForVersion(name, currentVersion, latestVersion))
         {
             return 0;
         }
@@ -464,6 +473,12 @@ public sealed class AppUpdateService
         return normalized.Contains($"from_{current}", StringComparison.OrdinalIgnoreCase) &&
                normalized.Contains($"to_{latest}", StringComparison.OrdinalIgnoreCase);
     }
+
+    private bool HasCachedPackage(Version version) =>
+        File.Exists(Path.Combine(
+            _paths.DataDirectory,
+            "Packages",
+            $"EasyShare_{version.ToString(4)}_x64.msix"));
 
     private string GetUpdateDirectory(AppUpdateInfo update)
     {

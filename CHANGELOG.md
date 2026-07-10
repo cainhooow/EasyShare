@@ -13,7 +13,8 @@ Todas as mudanças relevantes do EasyShare devem ser registradas neste arquivo a
 ### Atualizações e assinatura
 
 - Aceita assets incrementais assinados no formato `EasySharePatch_from_<versão>_to_<versão>.exe`, mantendo o instalador completo como fallback.
-- Documenta que patches de MSIX precisam ser executáveis assinados; diffs binários diretos quebrariam a assinatura do pacote.
+- Gera e aplica patches por blocos sobre o MSIX-base em cache, reconstruindo exatamente o pacote-alvo e validando os hashes antes da instalação.
+- O instalador agora armazena o MSIX assinado localmente para habilitar atualizações incrementais futuras.
 - Fortalece o script de assinatura com timestamp opcional e verificação `signtool /pa`.
 - Documenta o fluxo obrigatório de code signing comercial para produção.
 

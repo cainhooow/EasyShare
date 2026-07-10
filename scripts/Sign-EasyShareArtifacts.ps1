@@ -1,6 +1,7 @@
 param(
     [string]$MsixPath,
     [string]$ExePath,
+    [string]$PatchExePath,
     [string]$MsiPath,
     [string]$CertificateThumbprint = $env:EASYSHARE_SIGNING_CERT_THUMBPRINT,
     [string]$SignToolPath = "",
@@ -45,6 +46,7 @@ if (-not $certificate) {
 $assets = @(
     @{ Label = "MSIX"; Path = $MsixPath },
     @{ Label = "EXE"; Path = $ExePath },
+    @{ Label = "Patch EXE"; Path = $PatchExePath },
     @{ Label = "MSI"; Path = $MsiPath }
 ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_.Path) }
 

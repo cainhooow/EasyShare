@@ -2,6 +2,7 @@ param(
     [string]$Repository = "cainhooow/EasyShare",
     [string]$Version = "",
     [string]$ExePath = "dist/EasyShareSetup.exe",
+    [string]$PatchExePath = "",
     [string]$MsiPath = "dist/EasyShareSetup.msi",
     [string]$MsixPath = "",
     [string]$ChangelogPath = "CHANGELOG.md",
@@ -54,6 +55,7 @@ if ([string]::IsNullOrWhiteSpace($releaseNotes)) {
 
 $resolvedAssets = @(
     Join-Path $root $ExePath
+    if (-not [string]::IsNullOrWhiteSpace($PatchExePath)) { Join-Path $root $PatchExePath }
     Join-Path $root $MsiPath
     if (-not [string]::IsNullOrWhiteSpace($MsixPath)) { Join-Path $root $MsixPath }
 ) | Where-Object { Test-Path $_ }

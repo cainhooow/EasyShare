@@ -209,6 +209,7 @@ public sealed partial class MainPage
     {
         SelectNavigationItem("Browser");
         await EnsureBrowserInitializedAsync(navigate);
+        await RestoreBrowserMemoryAsync();
         ConfigureBrowserKeepAliveTimer();
     }
 
@@ -219,6 +220,8 @@ public sealed partial class MainPage
             await SessionWebView.EnsureCoreWebView2Async();
             _browserInitialized = true;
         }
+
+        SessionWebView.Visibility = Visibility.Visible;
 
         if (navigate && (SessionWebView.Source is null || SessionWebView.Source.AbsoluteUri == "about:blank"))
         {
@@ -302,6 +305,53 @@ public sealed partial class MainPage
         {
             StartupDiagnostics.Write("Could not trim WebView cache.", ex);
         }
+    }
+
+    private async Task PrepareBrowserForBackgroundAsync()
+    {
+        if (!_browserInitialized || SessionWebView.CoreWebView2 is null)
+        {
+            return;
+        }
+
+        try
+        {
+            SessionWebView.Visibility = Visibility.Collapsed;
+            SessionWebView.CoreWebView2.MemoryUsageTargetLevel = CoreWebView2MemoryUsageTargetLevel.Low;
+
+            if (!ViewModel.BrowserKeepSessionAlive && !SessionWebView.CoreWebView2.IsSuspended)
+            {
+                await SessionWebView.CoreWebView2.TrySuspendAsync();
+            }
+
+            await TrimBrowserCacheAsync();
+            StartupDiagnostics.Write("WebView moved to low-memory background mode.");
+        }
+        catch (Exception ex)
+        {
+            StartupDiagnostics.Write("Could not reduce WebView background memory usage.", ex);
+        }
+    }
+
+    private Task RestoreBrowserMemoryAsync()
+    {
+        if (!_browserInitialized || SessionWebView.CoreWebView2 is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        try
+        {
+            SessionWebView.Visibility = Visibility.Visible;
+            SessionWebView.CoreWebView2.Resume();
+            SessionWebView.CoreWebView2.MemoryUsageTargetLevel = CoreWebView2MemoryUsageTargetLevel.Normal;
+        }
+        catch (Exception ex)
+        {
+            StartupDiagnostics.Write("Could not restore WebView foreground memory mode.", ex);
+        }
+
+        return Task.CompletedTask;
     }
 
     private void ConfigureBrowserKeepAliveTimer()
