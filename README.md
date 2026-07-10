@@ -130,8 +130,15 @@ EasyShare / WinUI 3
 - **WebView2**: sessão integrada para autenticação no SharePoint.
 - **WinFsp e WinFsp.Net**: criação e operação da unidade virtual.
 - **SQLite**: armazenamento local de rotas e preferências.
+- **Fila de uploads**: grava cada alteração em `LocalApplicationData\EasyShare\UploadQueue` antes de tentar a rede, com retry e preservação do arquivo em caso de queda.
 - **Microsoft Graph/MSAL**: modo corporativo opcional quando configurado pela TI.
 - **GitHub Releases**: origem da verificação de novas versões.
+
+### Cache e uploads
+
+As listagens de pastas ficam em cache no SQLite pelo intervalo definido em **Ajustes > Cache de listagem**. O cache guarda somente metadados da listagem, não o conteúdo dos arquivos, e é invalidado após criar, enviar, renomear ou excluir itens. Ao sair da sessão ou resetar o aplicativo, o cache é limpo.
+
+Alterações feitas pelo Explorer são gravadas primeiro na fila local. O EasyShare tenta o envio em segundo plano com retentativa progressiva. Se o arquivo remoto mudou durante a edição, o envio fica marcado como conflito e o payload local é mantido para revisão; ele não sobrescreve silenciosamente a versão de outra pessoa.
 
 ## Segurança e limitações atuais
 
@@ -146,6 +153,26 @@ Ainda assim, o projeto está em desenvolvimento ativo e não deve ser tratado co
 - revisão final do instalador e da política de confiança do certificado.
 
 Não distribua certificados de teste como se fossem certificados de produção. Em máquinas com Smart App Control ou proteção equivalente, binários não assinados ou assinados apenas localmente podem ser bloqueados.
+
+### Guia para TI: Microsoft Entra ID
+
+Para habilitar o modo **Client ID da empresa**:
+
+1. Registre um aplicativo em **Microsoft Entra ID > Registros de aplicativo** como aplicativo público/nativo.
+2. Em **Autenticação**, adicione o Redirect URI de aplicativo móvel e desktop `http://localhost` e habilite o fluxo de cliente público.
+3. Em **Permissões de API > Microsoft Graph > Delegadas**, adicione somente as permissões necessárias ao ambiente. Para o fluxo atual, normalmente são `User.Read`, `Files.ReadWrite.All`, `Sites.ReadWrite.All` e `offline_access`; confirme a política de menor privilégio da organização.
+4. Conceda consentimento administrativo quando o tenant exigir.
+5. Informe no EasyShare o **Application (client) ID** e o Tenant ID. Se a autenticação entrar em loop, remova a conta/cache do aplicativo e confirme o Redirect URI e o consentimento.
+
+O modo **Entrar pelo app** continua sendo o caminho recomendado quando a TI não deseja registrar um aplicativo corporativo.
+
+### Checklist de implantação
+
+- Instalar WebView2, WinFsp e o Windows App Runtime compatíveis.
+- Instalar o MSI/EXE somente depois de validar a assinatura Authenticode dos arquivos.
+- Ativar **Abrir EasyShare junto com o Windows** apenas após confirmar que o pacote foi instalado para o usuário correto.
+- Validar uma pasta fixada, criação/renomeação, upload com a rede desligada e remontagem após reinício.
+- Publicar somente assets assinados por certificado de code signing confiável. O script de release aceita `-RequireTrustedSignature` para bloquear a publicação quando essa condição não for atendida.
 
 ## Desenvolvimento
 
@@ -178,7 +205,25 @@ dotnet publish .\src\EasyShare\EasyShare.csproj `
   -p:AppxPackageDir=.\dist\package\
 ```
 
-O pacote de teste deve ser assinado com um certificado apropriado ao ambiente antes da instalação.
+O pacote MSIX precisa ser assinado antes de ser copiado para os instaladores EXE/MSI. Sem essa etapa, o `Add-AppxPackage` falha com `0x800B0100` mesmo que o certificado esteja instalado na máquina.
+
+Use o certificado de code signing disponível no repositório local de certificados do Windows (ou informe o thumbprint do certificado de produção):
+
+```powershell
+.\scripts\Sign-EasyShareArtifacts.ps1 `
+  -MsixPath .\dist\package\EasyShare_1.0.0.20_x64.msix `
+  -CertificateThumbprint B3BF66137620B35E9AAB46642B8790C7DBFB8273
+```
+
+Depois de assinar o MSIX, copie-o para os payloads e gere os instaladores. Assine também o EXE/MSI finais antes de publicar:
+
+```powershell
+.\scripts\Sign-EasyShareArtifacts.ps1 `
+  -MsixPath .\dist\payload-exe\EasyShare_1.0.0.20_x64.msix `
+  -ExePath .\dist\EasyShareSetup.exe `
+  -MsiPath .\dist\EasyShareSetup.msi `
+  -CertificateThumbprint B3BF66137620B35E9AAB46642B8790C7DBFB8273
+```
 
 ### Configurar outro repositório de atualizações
 
@@ -192,7 +237,7 @@ dotnet build .\src\EasyShare\EasyShare.csproj `
 
 ### Publicar uma release
 
-Antes de publicar, adicione em `CHANGELOG.md` uma seção com a versão exata do `Package.appxmanifest`, por exemplo `## [1.0.0.17] - 2026-07-10`, descrevendo o que mudou. O script bloqueia a publicação quando essa seção não existe ou está vazia.
+Antes de publicar, adicione em `CHANGELOG.md` uma seção com a versão exata do `Package.appxmanifest`, por exemplo `## [1.0.0.20] - 2026-07-10`, descrevendo o que mudou. O script bloqueia a publicação quando essa seção não existe ou está vazia.
 
 Depois de gerar os instaladores em `dist/`, use o script abaixo. É necessário ter o GitHub CLI instalado e autenticado com `gh auth login`.
 
@@ -200,7 +245,8 @@ Depois de gerar os instaladores em `dist/`, use o script abaixo. É necessário 
 .\scripts\Publish-GitHubRelease.ps1 `
   -Repository cainhooow/EasyShare `
   -ExePath dist/EasyShareSetup.exe `
-  -MsiPath dist/EasyShareSetup.msi
+  -MsiPath dist/EasyShareSetup.msi `
+  -RequireTrustedSignature
 ```
 
 O updater reconhece, nesta ordem, `EasyShareSetup.exe`, outros instaladores `.exe` com `EasyShare` no nome, instaladores `.msi` e pacotes `.msix`.

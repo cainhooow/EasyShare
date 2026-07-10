@@ -111,6 +111,7 @@
     <x:String x:Key="ActionCheckUpdates">Procurar atualizações</x:String>
     <x:String x:Key="ActionDownloadUpdate">Baixar atualização</x:String>
     <x:String x:Key="ActionInstallUpdate">Instalar atualização</x:String>
+    <x:String x:Key="ActionRetryUpload">Tentar novamente</x:String>
     <x:String x:Key="ActionOpenRelease">Abrir release</x:String>
     <x:String x:Key="UpdateStatusIdleTitle">Atualizações</x:String>
     <x:String x:Key="UpdateStatusIdleMessage">O EasyShare verifica automaticamente novas versões pelo GitHub Releases.</x:String>
@@ -133,6 +134,8 @@
     <x:String x:Key="UpdateStatusInvalidVersionMessage">A tag da release ({0}) não parece uma versão válida.</x:String>
     <x:String x:Key="UpdateStatusNoAssetTitle">Release sem instalador</x:String>
     <x:String x:Key="UpdateStatusNoAssetMessage">A versão {0} existe, mas não possui EasyShareSetup.exe, .msi ou .msix nos assets.</x:String>
+    <x:String x:Key="UpdateStatusIntegrityTitle">Release sem validação de integridade</x:String>
+    <x:String x:Key="UpdateStatusIntegrityMessage">A release {0} não publicou o digest SHA-256 do instalador. O download foi bloqueado por segurança.</x:String>
     <x:String x:Key="UpdateStatusErrorTitle">Não foi possível verificar</x:String>
     <x:String x:Key="UpdateStatusErrorMessage">Não foi possível consultar as releases em {0}. Verifique conexão e se o repositório está público.</x:String>
     <x:String x:Key="UpdateStatusDownloadTitle">Baixando atualização</x:String>
@@ -262,6 +265,7 @@
     <x:String x:Key="SyncUploading">Enviando</x:String>
     <x:String x:Key="SyncCompleted">Concluído</x:String>
     <x:String x:Key="SyncNeedsAttention">Precisa de atenção</x:String>
+    <x:String x:Key="SyncConflict">Conflito: revisão necessária</x:String>
     <x:String x:Key="SyncQueued">Na fila</x:String>
 
     <x:String x:Key="AuthNeedsClientTitle">Client ID ausente</x:String>

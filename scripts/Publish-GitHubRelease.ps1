@@ -3,7 +3,9 @@ param(
     [string]$Version = "",
     [string]$ExePath = "dist/EasyShareSetup.exe",
     [string]$MsiPath = "dist/EasyShareSetup.msi",
-    [string]$ChangelogPath = "CHANGELOG.md"
+    [string]$MsixPath = "",
+    [string]$ChangelogPath = "CHANGELOG.md",
+    [switch]$RequireTrustedSignature
 )
 
 $ErrorActionPreference = "Stop"
@@ -53,6 +55,7 @@ if ([string]::IsNullOrWhiteSpace($releaseNotes)) {
 $resolvedAssets = @(
     Join-Path $root $ExePath
     Join-Path $root $MsiPath
+    if (-not [string]::IsNullOrWhiteSpace($MsixPath)) { Join-Path $root $MsixPath }
 ) | Where-Object { Test-Path $_ }
 
 if ($resolvedAssets.Count -eq 0) {
@@ -62,8 +65,17 @@ if ($resolvedAssets.Count -eq 0) {
 foreach ($asset in $resolvedAssets) {
     $signature = Get-AuthenticodeSignature $asset
     if ($signature.Status -ne "Valid") {
-        Write-Warning "$(Split-Path -Leaf $asset) is not signed by a trusted certificate. Smart App Control may block it."
+        $message = "$(Split-Path -Leaf $asset) is not signed by a trusted certificate. Smart App Control may block it."
+        if ($RequireTrustedSignature -or (Split-Path -Leaf $asset) -match '\.msix$') {
+            throw $message
+        }
+
+        Write-Warning $message
     }
+}
+
+if ($RequireTrustedSignature) {
+    Write-Host "Trusted Authenticode signatures validated for all release assets."
 }
 
 $assetNotes = ($resolvedAssets | ForEach-Object { "- $(Split-Path -Leaf $_)" }) -join "`n"

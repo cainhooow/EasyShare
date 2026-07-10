@@ -1,5 +1,6 @@
 using EasyShare.Models;
 using Microsoft.Data.Sqlite;
+using System.Text.Json;
 
 namespace EasyShare.Services;
 
@@ -43,11 +44,26 @@ public sealed class LocalDatabase
 
             CREATE TABLE IF NOT EXISTS SyncJobs (
                 Id TEXT NOT NULL PRIMARY KEY,
+                RouteId TEXT NULL,
                 FileName TEXT NOT NULL,
                 RouteDisplayName TEXT NOT NULL,
+                RelativePath TEXT NULL,
+                PayloadPath TEXT NULL,
+                ExpectedModifiedAt TEXT NULL,
                 State INTEGER NOT NULL,
                 Progress INTEGER NOT NULL,
-                UpdatedAt TEXT NOT NULL
+                UpdatedAt TEXT NOT NULL,
+                Attempts INTEGER NOT NULL DEFAULT 0,
+                LastError TEXT NULL,
+                NextAttemptAt TEXT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS DirectoryCache (
+                RouteId TEXT NOT NULL,
+                RelativePath TEXT NOT NULL,
+                CachedAt TEXT NOT NULL,
+                ItemsJson TEXT NOT NULL,
+                PRIMARY KEY (RouteId, RelativePath)
             );
 
             CREATE TABLE IF NOT EXISTS Settings (
@@ -55,6 +71,8 @@ public sealed class LocalDatabase
                 Value TEXT NOT NULL
             );
             """);
+
+        await EnsureSyncJobColumnsAsync(connection);
 
         await MigrateStartMinimizedDefaultAsync(connection);
     }
@@ -122,6 +140,7 @@ public sealed class LocalDatabase
 
         await ExecuteAsync(connection, transaction, "DELETE FROM DriveRoutes;");
         await ExecuteAsync(connection, transaction, "DELETE FROM SyncJobs;");
+        await ExecuteAsync(connection, transaction, "DELETE FROM DirectoryCache;");
         await ExecuteAsync(connection, transaction, "DELETE FROM Settings;");
 
         await transaction.CommitAsync();
@@ -217,7 +236,8 @@ public sealed class LocalDatabase
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            SELECT Id, FileName, RouteDisplayName, State, Progress, UpdatedAt
+            SELECT Id, RouteId, FileName, RouteDisplayName, RelativePath, PayloadPath,
+                   ExpectedModifiedAt, State, Progress, UpdatedAt, Attempts, LastError, NextAttemptAt
             FROM SyncJobs
             ORDER BY UpdatedAt DESC;
             """;
@@ -229,18 +249,276 @@ public sealed class LocalDatabase
             jobs.Add(new SyncJob
             {
                 Id = Guid.Parse(reader.GetString(0)),
-                FileName = reader.GetString(1),
-                RouteDisplayName = reader.GetString(2),
-                State = (SyncJobState)reader.GetInt32(3),
-                Progress = reader.GetInt32(4),
-                UpdatedAt = DateTimeOffset.Parse(reader.GetString(5))
+                RouteId = ParseGuid(reader, 1),
+                FileName = reader.GetString(2),
+                RouteDisplayName = reader.GetString(3),
+                RelativePath = GetNullableString(reader, 4),
+                PayloadPath = GetNullableString(reader, 5),
+                ExpectedModifiedAt = ParseDateTimeOffset(reader, 6),
+                State = (SyncJobState)reader.GetInt32(7),
+                Progress = reader.GetInt32(8),
+                UpdatedAt = DateTimeOffset.Parse(reader.GetString(9)),
+                Attempts = reader.GetInt32(10),
+                LastError = GetNullableString(reader, 11),
+                NextAttemptAt = ParseDateTimeOffset(reader, 12)
             });
         }
 
         return jobs;
     }
 
+    public async Task AddSyncJobAsync(SyncJob job)
+    {
+        await using var connection = CreateConnection();
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            INSERT INTO SyncJobs
+                (Id, RouteId, FileName, RouteDisplayName, RelativePath, PayloadPath,
+                 ExpectedModifiedAt, State, Progress, UpdatedAt, Attempts, LastError, NextAttemptAt)
+            VALUES
+                ($id, $routeId, $fileName, $routeDisplayName, $relativePath, $payloadPath,
+                 $expectedModifiedAt, $state, $progress, $updatedAt, $attempts, $lastError, $nextAttemptAt);
+            """;
+        BindSyncJobParameters(command, job);
+        await command.ExecuteNonQueryAsync();
+    }
+
+    public async Task UpdateSyncJobAsync(SyncJob job)
+    {
+        await using var connection = CreateConnection();
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            UPDATE SyncJobs
+            SET RouteId = $routeId,
+                FileName = $fileName,
+                RouteDisplayName = $routeDisplayName,
+                RelativePath = $relativePath,
+                PayloadPath = $payloadPath,
+                ExpectedModifiedAt = $expectedModifiedAt,
+                State = $state,
+                Progress = $progress,
+                UpdatedAt = $updatedAt,
+                Attempts = $attempts,
+                LastError = $lastError,
+                NextAttemptAt = $nextAttemptAt
+            WHERE Id = $id;
+            """;
+        BindSyncJobParameters(command, job);
+        await command.ExecuteNonQueryAsync();
+    }
+
+    public async Task<SyncJob?> FindPendingSyncJobAsync(Guid routeId, string relativePath)
+    {
+        await using var connection = CreateConnection();
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT Id, RouteId, FileName, RouteDisplayName, RelativePath, PayloadPath,
+                   ExpectedModifiedAt, State, Progress, UpdatedAt, Attempts, LastError, NextAttemptAt
+            FROM SyncJobs
+            WHERE RouteId = $routeId
+              AND RelativePath = $relativePath
+              AND State IN ($waiting, $uploading, $failed, $conflict)
+            ORDER BY UpdatedAt DESC
+            LIMIT 1;
+            """;
+        command.Parameters.AddWithValue("$routeId", routeId.ToString());
+        command.Parameters.AddWithValue("$relativePath", relativePath);
+        command.Parameters.AddWithValue("$waiting", (int)SyncJobState.Waiting);
+        command.Parameters.AddWithValue("$uploading", (int)SyncJobState.Uploading);
+        command.Parameters.AddWithValue("$failed", (int)SyncJobState.Failed);
+        command.Parameters.AddWithValue("$conflict", (int)SyncJobState.Conflict);
+
+        await using var reader = await command.ExecuteReaderAsync();
+        return await reader.ReadAsync() ? ReadSyncJob(reader) : null;
+    }
+
+    public async Task<IReadOnlyList<SyncJob>> GetPendingSyncJobsAsync()
+    {
+        var jobs = await GetSyncJobsAsync();
+        return jobs
+            .Where(job => job.State is SyncJobState.Waiting or SyncJobState.Uploading)
+            .ToArray();
+    }
+
+    public DirectoryCacheSnapshot? TryGetDirectoryCache(Guid routeId, string relativePath, TimeSpan maxAge)
+    {
+        try
+        {
+            using var connection = CreateConnection();
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText =
+                """
+                SELECT CachedAt, ItemsJson
+                FROM DirectoryCache
+                WHERE RouteId = $routeId AND RelativePath = $relativePath
+                LIMIT 1;
+                """;
+            command.Parameters.AddWithValue("$routeId", routeId.ToString());
+            command.Parameters.AddWithValue("$relativePath", relativePath);
+
+            using var reader = command.ExecuteReader();
+            if (!reader.Read() || !DateTimeOffset.TryParse(reader.GetString(0), out var cachedAt))
+            {
+                return null;
+            }
+
+            var items = JsonSerializer.Deserialize<SharePointDriveItem[]>(reader.GetString(1));
+            return items is null || DateTimeOffset.UtcNow - cachedAt > maxAge
+                ? null
+                : new DirectoryCacheSnapshot(cachedAt, items);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public void SaveDirectoryCache(Guid routeId, string relativePath, IReadOnlyList<SharePointDriveItem> items)
+    {
+        try
+        {
+            using var connection = CreateConnection();
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText =
+                """
+                INSERT INTO DirectoryCache (RouteId, RelativePath, CachedAt, ItemsJson)
+                VALUES ($routeId, $relativePath, $cachedAt, $itemsJson)
+                ON CONFLICT(RouteId, RelativePath) DO UPDATE SET
+                    CachedAt = excluded.CachedAt,
+                    ItemsJson = excluded.ItemsJson;
+                """;
+            command.Parameters.AddWithValue("$routeId", routeId.ToString());
+            command.Parameters.AddWithValue("$relativePath", relativePath);
+            command.Parameters.AddWithValue("$cachedAt", DateTimeOffset.UtcNow.ToString("O"));
+            command.Parameters.AddWithValue("$itemsJson", JsonSerializer.Serialize(items));
+            command.ExecuteNonQuery();
+        }
+        catch
+        {
+            // A cache write must never make Explorer operations fail.
+        }
+    }
+
+    public void ClearDirectoryCache()
+    {
+        try
+        {
+            using var connection = CreateConnection();
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "DELETE FROM DirectoryCache;";
+            command.ExecuteNonQuery();
+        }
+        catch
+        {
+            // Cache cleanup is best effort; session cleanup still clears in-memory data.
+        }
+    }
+
+    public void InvalidateDirectoryCache(Guid routeId, string relativePath)
+    {
+        try
+        {
+            using var connection = CreateConnection();
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText =
+                "DELETE FROM DirectoryCache WHERE RouteId = $routeId AND RelativePath = $relativePath;";
+            command.Parameters.AddWithValue("$routeId", routeId.ToString());
+            command.Parameters.AddWithValue("$relativePath", relativePath);
+            command.ExecuteNonQuery();
+        }
+        catch
+        {
+            // Cache invalidation is best effort.
+        }
+    }
+
     private SqliteConnection CreateConnection() => new(_connectionString);
+
+    private static SyncJob ReadSyncJob(SqliteDataReader reader) => new()
+    {
+        Id = Guid.Parse(reader.GetString(0)),
+        RouteId = ParseGuid(reader, 1),
+        FileName = reader.GetString(2),
+        RouteDisplayName = reader.GetString(3),
+        RelativePath = GetNullableString(reader, 4),
+        PayloadPath = GetNullableString(reader, 5),
+        ExpectedModifiedAt = ParseDateTimeOffset(reader, 6),
+        State = (SyncJobState)reader.GetInt32(7),
+        Progress = reader.GetInt32(8),
+        UpdatedAt = DateTimeOffset.Parse(reader.GetString(9)),
+        Attempts = reader.GetInt32(10),
+        LastError = GetNullableString(reader, 11),
+        NextAttemptAt = ParseDateTimeOffset(reader, 12)
+    };
+
+    private static void BindSyncJobParameters(SqliteCommand command, SyncJob job)
+    {
+        command.Parameters.AddWithValue("$id", job.Id.ToString());
+        command.Parameters.AddWithValue("$routeId", job.RouteId?.ToString() ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$fileName", job.FileName);
+        command.Parameters.AddWithValue("$routeDisplayName", job.RouteDisplayName);
+        command.Parameters.AddWithValue("$relativePath", job.RelativePath ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$payloadPath", job.PayloadPath ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$expectedModifiedAt", job.ExpectedModifiedAt?.ToString("O") ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$state", (int)job.State);
+        command.Parameters.AddWithValue("$progress", Math.Clamp(job.Progress, 0, 100));
+        command.Parameters.AddWithValue("$updatedAt", job.UpdatedAt.ToString("O"));
+        command.Parameters.AddWithValue("$attempts", Math.Max(0, job.Attempts));
+        command.Parameters.AddWithValue("$lastError", string.IsNullOrWhiteSpace(job.LastError) ? (object)DBNull.Value : job.LastError);
+        command.Parameters.AddWithValue("$nextAttemptAt", job.NextAttemptAt?.ToString("O") ?? (object)DBNull.Value);
+    }
+
+    private static async Task EnsureSyncJobColumnsAsync(SqliteConnection connection)
+    {
+        var columns = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["RouteId"] = "TEXT NULL",
+            ["RelativePath"] = "TEXT NULL",
+            ["PayloadPath"] = "TEXT NULL",
+            ["ExpectedModifiedAt"] = "TEXT NULL",
+            ["Attempts"] = "INTEGER NOT NULL DEFAULT 0",
+            ["LastError"] = "TEXT NULL",
+            ["NextAttemptAt"] = "TEXT NULL"
+        };
+
+        foreach (var column in columns)
+        {
+            await using var check = connection.CreateCommand();
+            check.CommandText = "SELECT 1 FROM pragma_table_info('SyncJobs') WHERE name = $name LIMIT 1;";
+            check.Parameters.AddWithValue("$name", column.Key);
+            if (await check.ExecuteScalarAsync() is not null)
+            {
+                continue;
+            }
+
+            await using var alter = connection.CreateCommand();
+            alter.CommandText = $"ALTER TABLE SyncJobs ADD COLUMN {column.Key} {column.Value};";
+            await alter.ExecuteNonQueryAsync();
+        }
+    }
+
+    private static Guid? ParseGuid(SqliteDataReader reader, int ordinal) =>
+        reader.IsDBNull(ordinal) || !Guid.TryParse(reader.GetString(ordinal), out var value)
+            ? null
+            : value;
+
+    private static DateTimeOffset? ParseDateTimeOffset(SqliteDataReader reader, int ordinal) =>
+        reader.IsDBNull(ordinal) || !DateTimeOffset.TryParse(reader.GetString(ordinal), out var value)
+            ? null
+            : value;
+
+    private static string GetNullableString(SqliteDataReader reader, int ordinal) =>
+        reader.IsDBNull(ordinal) ? string.Empty : reader.GetString(ordinal);
 
     private static async Task SaveSettingAsync(SqliteConnection connection, System.Data.Common.DbTransaction transaction, string key, string value)
     {
@@ -344,3 +622,7 @@ public sealed class LocalDatabase
         return normalized.Length == 1 ? $"{normalized}:" : normalized;
     }
 }
+
+public sealed record DirectoryCacheSnapshot(
+    DateTimeOffset CachedAt,
+    IReadOnlyList<SharePointDriveItem> Items);

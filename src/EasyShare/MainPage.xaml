@@ -375,10 +375,18 @@
                                     <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="{x:Bind FileName}" />
                                     <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind RouteDisplayName}" />
                                     <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind UpdatedText}" />
+                                    <TextBlock
+                                        Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                        Text="{x:Bind LastError}"
+                                        TextWrapping="Wrap" />
                                 </StackPanel>
                                 <StackPanel Grid.Column="1" Spacing="6">
                                     <TextBlock Text="{x:Bind StateText}" />
                                     <ProgressBar Maximum="100" Value="{x:Bind Progress}" />
+                                    <Button
+                                        Click="RetryUploadButton_Click"
+                                        Content="{Binding Source={StaticResource Text}, Path=ActionRetryUpload}"
+                                        Tag="{x:Bind Id}" />
                                 </StackPanel>
                             </Grid>
                             </Border>

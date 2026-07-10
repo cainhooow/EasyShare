@@ -9,7 +9,7 @@ $ErrorActionPreference = "Stop"
 
 $root = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $cacheRoot = Join-Path $env:ProgramData "EasyShare\InstallerCache"
-$packageName = "EasyShare_1.0.0.17_x64.msix"
+$packageName = "EasyShare_1.0.0.20_x64.msix"
 $package = Join-Path $root $packageName
 $certificate = Join-Path $root "EasyShare_TestCertificate.cer"
 $dependency = Join-Path $root "Dependencies\x64\Microsoft.WindowsAppRuntime.2.msix"
@@ -77,6 +77,18 @@ function Test-MachineCertificateTrusted {
     catch {
         return $false
     }
+}
+
+function Test-EasySharePackageSignature {
+    $signature = Get-AuthenticodeSignature -FilePath $package
+    if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+        $status = $signature.Status
+        $message = if ($signature.StatusMessage) { $signature.StatusMessage } else { "assinatura ausente ou invalida" }
+        throw "O pacote MSIX do EasyShare nao esta assinado corretamente. Status: $status. Detalhes: $message"
+    }
+
+    $signer = $signature.SignerCertificate.Subject
+    Write-Host "Assinatura do pacote MSIX validada: $signer"
 }
 
 function Resolve-WinFspInstaller {
@@ -179,6 +191,7 @@ else {
 }
 
 Import-EasyShareCertificate
+Test-EasySharePackageSignature
 
 $dependencyPaths = @()
 if (Test-Path -LiteralPath $dependency) {

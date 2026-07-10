@@ -2,6 +2,34 @@
 
 Todas as mudanças relevantes do EasyShare devem ser registradas neste arquivo antes da publicação de uma release.
 
+## [1.0.0.20] - 2026-07-10
+
+### Release corrigida
+
+- Rebuild da versão corrigida com novo número para substituir a release `1.0.0.19`.
+- Mantém a validação da assinatura do MSIX e a assinatura dos artefatos antes da publicação.
+
+## [1.0.0.19] - 2026-07-10
+
+### Instalador
+
+- O instalador agora valida a assinatura do pacote MSIX antes de chamar `Add-AppxPackage`.
+- O fluxo de release documenta e automatiza a assinatura do MSIX, EXE e MSI, evitando o erro do Windows `0x800B0100` causado por pacotes sem assinatura.
+
+## [1.0.0.18] - 2026-07-10
+
+### Confiabilidade e segurança
+
+- Preferência de inicialização agora desativa entradas antigas do Windows em vez de reativá-las silenciosamente.
+- Uploads do Explorer passaram a usar fila local durável, retry progressivo e detecção de conflito.
+- Listagens passaram a usar cache de metadados no SQLite com expiração e limpeza ao encerrar a sessão.
+- Updater valida o digest SHA-256 publicado pelo GitHub antes de reutilizar ou abrir um instalador.
+- Testes automatizados cobrem allowlist HTTPS do SharePoint e verificação de integridade dos downloads.
+
+### Documentação
+
+- README recebeu guia de configuração do Entra ID, implantação para TI e operação da fila/cache.
+
 ## [1.0.0.17] - 2026-07-10
 
 ### Interface

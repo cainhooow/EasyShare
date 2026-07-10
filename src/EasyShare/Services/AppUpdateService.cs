@@ -28,7 +28,8 @@ public sealed record AppUpdateInfo(
     Uri ReleasePageUrl,
     string AssetName,
     long AssetSizeBytes,
-    Uri DownloadUrl);
+    Uri DownloadUrl,
+    string ExpectedSha256);
 
 public sealed record AppUpdateProgress(long BytesReceived, long? TotalBytes)
 {
@@ -158,6 +159,15 @@ public sealed class AppUpdateService
                 ? parsedReleaseUrl
                 : new Uri($"https://github.com/{RepositoryOwner}/{RepositoryName}/releases/latest");
 
+            var expectedSha256 = UpdateIntegrity.NormalizeSha256(asset.Digest);
+            if (string.IsNullOrWhiteSpace(expectedSha256))
+            {
+                return new AppUpdateStatus(
+                    AppText.Get("UpdateStatusIntegrityTitle"),
+                    AppText.Format("UpdateStatusIntegrityMessage", release.TagName),
+                    InfoBarSeverity.Warning);
+            }
+
             var update = new AppUpdateInfo(
                 latestVersion.ToString(),
                 latestVersion,
@@ -167,7 +177,8 @@ public sealed class AppUpdateService
                 releasePageUrl,
                 asset.Name,
                 asset.Size,
-                downloadUrl);
+                downloadUrl,
+                expectedSha256);
 
             return new AppUpdateStatus(
                 AppText.Get("UpdateStatusAvailableTitle"),
@@ -231,6 +242,11 @@ public sealed class AppUpdateService
             return targetPath;
         }
 
+        if (string.IsNullOrWhiteSpace(update.ExpectedSha256))
+        {
+            throw new InvalidDataException("A release asset without a SHA-256 digest cannot be installed.");
+        }
+
         var temporaryPath = $"{targetPath}.download";
         TryDeleteFile(temporaryPath);
 
@@ -267,6 +283,12 @@ public sealed class AppUpdateService
         }
 
         File.Move(temporaryPath, targetPath, overwrite: true);
+        if (!UpdateIntegrity.VerifyFile(targetPath, update.ExpectedSha256))
+        {
+            TryDeleteFile(targetPath);
+            throw new InvalidDataException("The downloaded update failed SHA-256 verification.");
+        }
+
         progress?.Report(new AppUpdateProgress(bytesReceived, totalBytes ?? bytesReceived));
         return targetPath;
     }
@@ -434,8 +456,20 @@ public sealed class AppUpdateService
             return false;
         }
 
-        return fileInfo.Length > 0;
+        if (fileInfo.Length <= 0 || string.IsNullOrWhiteSpace(update.ExpectedSha256))
+        {
+            return false;
+        }
+
+        if (!UpdateIntegrity.VerifyFile(path, update.ExpectedSha256))
+        {
+            TryDeleteFile(path);
+            return false;
+        }
+
+        return true;
     }
+
 
     private static void TryDeleteFile(string path)
     {
@@ -498,5 +532,8 @@ public sealed class AppUpdateService
 
         [JsonPropertyName("browser_download_url")]
         public string? BrowserDownloadUrl { get; init; }
+
+        [JsonPropertyName("digest")]
+        public string? Digest { get; init; }
     }
 }

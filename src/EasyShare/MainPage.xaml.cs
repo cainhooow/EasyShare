@@ -19,6 +19,7 @@ public sealed partial class MainPage : Page
 {
     private readonly BrowserSessionService _browserSessionService;
     private readonly SharePointBrowserContentService _browserContent;
+    private readonly UploadQueueService _uploadQueue;
     private readonly DispatcherTimer _browserKeepAliveTimer = new();
     private readonly DispatcherTimer _actionMessageTimer = new();
     private bool _browserInitialized;
@@ -32,19 +33,21 @@ public sealed partial class MainPage : Page
         var paths = new AppDataPaths();
         var database = new LocalDatabase(paths);
         var authentication = new MsalAuthenticationService(paths, database);
-        _browserContent = new SharePointBrowserContentService();
+        _browserContent = new SharePointBrowserContentService(database);
+        _uploadQueue = new UploadQueueService(database, _browserContent, paths);
         _browserSessionService = new BrowserSessionService(paths);
 
         ViewModel = new MainPageViewModel(
             database,
             authentication,
-            new VirtualDriveService(_browserContent),
+            new VirtualDriveService(_browserContent, _uploadQueue),
             new StartupService(),
             new GraphSharePointService(authentication),
             new AppUpdateService(paths));
 
         InitializeComponent();
         ViewModel.PropertyChanged += ViewModel_PropertyChanged;
+        _uploadQueue.JobChanged += UploadQueue_JobChanged;
         _browserKeepAliveTimer.Tick += BrowserKeepAliveTimer_Tick;
         _actionMessageTimer.Interval = TimeSpan.FromSeconds(5);
         _actionMessageTimer.Tick += (_, _) =>
@@ -69,6 +72,8 @@ public sealed partial class MainPage : Page
                 async () =>
                 {
                     await ViewModel.LoadAsync();
+                    _browserContent.ConfigureCache(TimeSpan.FromMinutes(ViewModel.CacheMinutes));
+                    _uploadQueue.Start();
                     await RestoreBrowserSessionOnStartupAsync();
                 },
                 "LoadingStartupTitle",
@@ -109,6 +114,11 @@ public sealed partial class MainPage : Page
         }
     }
 
+    private void UploadQueue_JobChanged(SyncJob job)
+    {
+        DispatcherQueue.TryEnqueue(() => ViewModel.ApplySyncJob(job));
+    }
+
     private async void SignInButton_Click(object sender, RoutedEventArgs e)
     {
         if (ViewModel.IsBrowserSessionMode)
@@ -142,6 +152,7 @@ public sealed partial class MainPage : Page
             ViewModel.SignOutAsync,
             "LoadingSaveTitle",
             "LoadingSaveMessage");
+        _browserContent.ClearCache();
     }
 
     private async void SaveSettingsButton_Click(object sender, RoutedEventArgs e)
@@ -150,6 +161,7 @@ public sealed partial class MainPage : Page
             ViewModel.SaveSettingsAsync,
             "LoadingSaveTitle",
             "LoadingSaveMessage");
+        _browserContent.ConfigureCache(TimeSpan.FromMinutes(ViewModel.CacheMinutes));
         ConfigureBrowserKeepAliveTimer();
         ShowActionMessage(AppText.Get("SettingsSavedTitle"), AppText.Get("SettingsSavedMessage"), InfoBarSeverity.Success);
     }
@@ -319,6 +331,14 @@ public sealed partial class MainPage : Page
     {
         await ViewModel.DownloadUpdateAsync();
         ShowActionMessage(ViewModel.UpdateStatusTitle, ViewModel.UpdateStatusMessage, ViewModel.UpdateStatusSeverity);
+    }
+
+    private async void RetryUploadButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: Guid jobId })
+        {
+            await _uploadQueue.RetryAsync(jobId);
+        }
     }
 
     private void InstallUpdateButton_Click(object sender, RoutedEventArgs e)
