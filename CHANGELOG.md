@@ -2,6 +2,14 @@
 
 Todas as mudanças relevantes do EasyShare devem ser registradas neste arquivo antes da publicação de uma release.
 
+## [1.0.0.23] - 2026-07-10
+
+### Personalização e interface
+
+- Reorganiza o espaço da tela Personalização com uma prévia visual da cor de destaque e dos controles da aplicação.
+- Corrige o reflow responsivo do seletor de cor em janelas estreitas.
+- Corrige o contraste dos botões minimizar, maximizar e fechar quando o EasyShare está no tema claro e o Windows permanece no tema escuro.
+
 ## [1.0.0.22] - 2026-07-10
 
 ### Personalização

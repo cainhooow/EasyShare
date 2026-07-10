@@ -835,6 +835,17 @@ public sealed partial class MainPage : Page
         Grid.SetColumn(SettingsPersonalizationCard, 0);
         Grid.SetColumnSpan(SettingsPersonalizationCard, compactSettings ? 1 : 2);
         Grid.SetRow(SettingsPersonalizationCard, compactSettings ? 3 : 2);
+        SettingsPersonalizationLayout.ColumnDefinitions[0].Width = new GridLength(1, GridUnitType.Star);
+        SettingsPersonalizationLayout.ColumnDefinitions[1].Width = compactSettings
+            ? new GridLength(0)
+            : new GridLength(2, GridUnitType.Star);
+        SettingsPersonalizationLayout.RowDefinitions[1].Height = compactSettings
+            ? GridLength.Auto
+            : new GridLength(0);
+        Grid.SetColumn(SettingsPersonalizationOptionsPanel, 0);
+        Grid.SetRow(SettingsPersonalizationOptionsPanel, 0);
+        Grid.SetColumn(SettingsPersonalizationColorPanel, compactSettings ? 0 : 1);
+        Grid.SetRow(SettingsPersonalizationColorPanel, compactSettings ? 1 : 0);
         Grid.SetColumn(SettingsActionsPanel, 0);
         Grid.SetColumnSpan(SettingsActionsPanel, compactSettings ? 1 : 2);
         Grid.SetRow(SettingsActionsPanel, compactSettings ? 4 : 3);

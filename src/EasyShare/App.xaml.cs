@@ -98,6 +98,19 @@ public partial class App : Application
                         AppThemeMode.Dark => ElementTheme.Dark,
                         _ => ElementTheme.Default
                     };
+
+                var useDarkTitleBarButtons = highContrast
+                    ? false
+                    : themeMode switch
+                    {
+                        AppThemeMode.Light => true,
+                        AppThemeMode.Dark => false,
+                        _ => content.ActualTheme != ElementTheme.Dark
+                    };
+                if (MainWindow is MainWindow mainWindow)
+                {
+                    mainWindow.ApplyTitleBarAppearance(useDarkTitleBarButtons, highContrast);
+                }
             }
 
             var resources = Current.Resources;

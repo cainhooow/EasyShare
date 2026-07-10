@@ -3,6 +3,7 @@ using EasyShare.Resources;
 using EasyShare.Services;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml.Media;
+using Windows.UI;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -64,6 +65,49 @@ public sealed partial class MainWindow : Window
     }
 
     public void HideToTray() => _trayIconService?.Hide();
+
+    public void ApplyTitleBarAppearance(bool useDarkButtons, bool highContrast)
+    {
+        try
+        {
+            var titleBar = AppWindow.TitleBar;
+            var background = highContrast
+                ? GetSystemColor("SystemColorWindowColor", Microsoft.UI.Colors.Black)
+                : useDarkButtons
+                    ? Color.FromArgb(255, 255, 255, 255)
+                    : Color.FromArgb(255, 32, 32, 32);
+            var foreground = highContrast
+                ? GetSystemColor("SystemColorWindowTextColor", Microsoft.UI.Colors.White)
+                : useDarkButtons
+                    ? Color.FromArgb(255, 32, 32, 32)
+                    : Microsoft.UI.Colors.White;
+
+            AppTitleBar.Background = new SolidColorBrush(background);
+            AppTitleText.Foreground = new SolidColorBrush(foreground);
+            titleBar.ButtonForegroundColor = foreground;
+            titleBar.ButtonHoverForegroundColor = foreground;
+            titleBar.ButtonPressedForegroundColor = foreground;
+            titleBar.ButtonBackgroundColor = Microsoft.UI.Colors.Transparent;
+            titleBar.ButtonHoverBackgroundColor = useDarkButtons
+                ? Color.FromArgb(24, 0, 0, 0)
+                : Color.FromArgb(24, 255, 255, 255);
+            titleBar.ButtonPressedBackgroundColor = useDarkButtons
+                ? Color.FromArgb(40, 0, 0, 0)
+                : Color.FromArgb(40, 255, 255, 255);
+        }
+        catch (Exception ex)
+        {
+            StartupDiagnostics.Write("Could not apply title bar appearance.", ex);
+        }
+    }
+
+    private static Color GetSystemColor(string key, Color fallback)
+    {
+        var resources = Application.Current.Resources;
+        return resources.TryGetValue(key, out var value) && value is Color color
+            ? color
+            : fallback;
+    }
 
     private void ExitFromTray()
     {
