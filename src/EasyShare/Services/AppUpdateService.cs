@@ -29,7 +29,8 @@ public sealed record AppUpdateInfo(
     string AssetName,
     long AssetSizeBytes,
     Uri DownloadUrl,
-    string ExpectedSha256);
+    string ExpectedSha256,
+    bool IsIncremental);
 
 public sealed record AppUpdateProgress(long BytesReceived, long? TotalBytes)
 {
@@ -143,7 +144,11 @@ public sealed class AppUpdateService
                     InfoBarSeverity.Success);
             }
 
-            var asset = SelectInstallerAsset(release.Assets);
+            var asset = SelectInstallerAsset(
+                release.Assets,
+                currentVersion,
+                latestVersion,
+                HasCachedPackage(currentVersion));
             if (asset is null ||
                 string.IsNullOrWhiteSpace(asset.Name) ||
                 string.IsNullOrWhiteSpace(asset.BrowserDownloadUrl) ||
@@ -178,7 +183,8 @@ public sealed class AppUpdateService
                 asset.Name,
                 asset.Size,
                 downloadUrl,
-                expectedSha256);
+                expectedSha256,
+                IsIncrementalAsset(asset.Name));
 
             return new AppUpdateStatus(
                 AppText.Get("UpdateStatusAvailableTitle"),
@@ -392,13 +398,28 @@ public sealed class AppUpdateService
             : $"{normalized[..12000].TrimEnd()}…";
     }
 
-    private static GitHubReleaseAssetResponse? SelectInstallerAsset(IReadOnlyList<GitHubReleaseAssetResponse>? assets) =>
+    private static GitHubReleaseAssetResponse? SelectInstallerAsset(
+        IReadOnlyList<GitHubReleaseAssetResponse>? assets,
+        Version currentVersion,
+        Version latestVersion,
+        bool hasCachedPackage) =>
         assets?
             .Where(asset => !string.IsNullOrWhiteSpace(asset.BrowserDownloadUrl))
-            .OrderBy(asset => AssetPreference(asset.Name))
-            .FirstOrDefault(asset => AssetPreference(asset.Name) < int.MaxValue);
+            .Select(asset => new
+            {
+                Asset = asset,
+                Preference = AssetPreference(asset.Name, currentVersion, latestVersion, hasCachedPackage)
+            })
+            .Where(candidate => candidate.Preference < int.MaxValue)
+            .OrderBy(candidate => candidate.Preference)
+            .Select(candidate => candidate.Asset)
+            .FirstOrDefault();
 
-    private static int AssetPreference(string? assetName)
+    private static int AssetPreference(
+        string? assetName,
+        Version currentVersion,
+        Version latestVersion,
+        bool hasCachedPackage)
     {
         if (string.IsNullOrWhiteSpace(assetName))
         {
@@ -406,28 +427,58 @@ public sealed class AppUpdateService
         }
 
         var name = assetName.ToLowerInvariant();
-        if (name.Equals("easysharesetup.exe", StringComparison.OrdinalIgnoreCase))
+        if (hasCachedPackage && IsIncrementalAssetForVersion(name, currentVersion, latestVersion))
         {
             return 0;
         }
 
+        if (name.Equals("easysharesetup.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            return 10;
+        }
+
         if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && name.Contains("easyshare", StringComparison.Ordinal))
         {
-            return 1;
+            return 11;
         }
 
         if (name.EndsWith(".msi", StringComparison.OrdinalIgnoreCase) && name.Contains("easyshare", StringComparison.Ordinal))
         {
-            return 2;
+            return 12;
         }
 
         if (name.EndsWith(".msix", StringComparison.OrdinalIgnoreCase) && name.Contains("easyshare", StringComparison.Ordinal))
         {
-            return 3;
+            return 13;
         }
 
         return int.MaxValue;
     }
+
+    private static bool IsIncrementalAsset(string? assetName) =>
+        !string.IsNullOrWhiteSpace(assetName) &&
+        assetName.Contains("patch", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsIncrementalAssetForVersion(string assetName, Version currentVersion, Version latestVersion)
+    {
+        if (!IsIncrementalAsset(assetName))
+        {
+            return false;
+        }
+
+        var current = currentVersion.ToString(4);
+        var latest = latestVersion.ToString(4);
+        var normalized = assetName.Replace('.', '_')
+            .Replace('-', '_');
+        return normalized.Contains($"from_{current}", StringComparison.OrdinalIgnoreCase) &&
+               normalized.Contains($"to_{latest}", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool HasCachedPackage(Version version) =>
+        File.Exists(Path.Combine(
+            _paths.DataDirectory,
+            "Packages",
+            $"EasyShare_{version.ToString(4)}_x64.msix"));
 
     private string GetUpdateDirectory(AppUpdateInfo update)
     {

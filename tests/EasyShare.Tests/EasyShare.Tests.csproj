@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <Compile Include="..\..\src\EasyShare\Services\SharePointRouteParser.cs" Link="Services\SharePointRouteParser.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\IncrementalPatch.cs" Link="Services\IncrementalPatch.cs" />
     <Compile Include="..\..\src\EasyShare\Services\UpdateIntegrity.cs" Link="Services\UpdateIntegrity.cs" />
     <Compile Include="..\..\src\EasyShare\Services\UpdateInstallerStager.cs" Link="Services\UpdateInstallerStager.cs" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />

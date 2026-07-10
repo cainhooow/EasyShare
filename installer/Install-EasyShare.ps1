@@ -2,6 +2,7 @@ param(
     [switch]$NoLaunch,
     [switch]$MachinePrerequisitesOnly,
     [switch]$SkipWinFspInstall,
+    [string]$PackagePath,
     [string]$LogPath
 )
 
@@ -9,8 +10,14 @@ $ErrorActionPreference = "Stop"
 
 $root = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $cacheRoot = Join-Path $env:ProgramData "EasyShare\InstallerCache"
-$packageName = "EasyShare_1.0.0.21_x64.msix"
-$package = Join-Path $root $packageName
+$defaultPackageName = "EasyShare_1.0.0.22_x64.msix"
+$package = if ([string]::IsNullOrWhiteSpace($PackagePath)) {
+    Join-Path $root $defaultPackageName
+} else {
+    [System.IO.Path]::GetFullPath($PackagePath)
+}
+$packageName = [System.IO.Path]::GetFileName($package)
+$packageCacheRoot = Join-Path $env:LOCALAPPDATA "EasyShare\Packages"
 $certificate = Join-Path $root "EasyShare_TestCertificate.cer"
 $dependency = Join-Path $root "Dependencies\x64\Microsoft.WindowsAppRuntime.2.msix"
 if (-not (Test-Path -LiteralPath $dependency)) {
@@ -89,6 +96,17 @@ function Test-EasySharePackageSignature {
 
     $signer = $signature.SignerCertificate.Subject
     Write-Host "Assinatura do pacote MSIX validada: $signer"
+}
+
+function Cache-EasySharePackage {
+    try {
+        New-Item -ItemType Directory -Path $packageCacheRoot -Force | Out-Null
+        Copy-Item -LiteralPath $package -Destination (Join-Path $packageCacheRoot $packageName) -Force
+        Write-Host "Pacote assinado armazenado para atualizacoes incrementais: $packageName"
+    }
+    catch {
+        Write-Warning "Nao foi possivel armazenar o pacote para atualizacoes incrementais: $($_.Exception.Message)"
+    }
 }
 
 function Resolve-WinFspInstaller {
@@ -218,6 +236,8 @@ catch {
         throw
     }
 }
+
+Cache-EasySharePackage
 
 if (-not (Test-WinFspInstalled)) {
     Write-Warning "WinFsp nao foi encontrado. Instale o WinFsp antes de ativar a unidade do EasyShare."

@@ -484,6 +484,11 @@
                                 <SymbolIcon Symbol="Delete" />
                             </AppBarButton.Icon>
                         </AppBarButton>
+                        <AppBarButton Click="TrimBrowserCacheButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionTrimWebViewCache}">
+                            <AppBarButton.Icon>
+                                <SymbolIcon Symbol="Clear" />
+                            </AppBarButton.Icon>
+                        </AppBarButton>
                     </CommandBar>
                 </Grid>
 

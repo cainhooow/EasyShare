@@ -2,6 +2,22 @@
 
 Todas as mudanças relevantes do EasyShare devem ser registradas neste arquivo antes da publicação de uma release.
 
+## [1.0.0.22] - 2026-07-10
+
+### Estrutura e WebView
+
+- Separa o fluxo da sessão WebView e atualizações da tela principal em um arquivo parcial por responsabilidade.
+- Adiciona limpeza do cache de disco e Cache Storage da WebView sem remover cookies ou o login salvo.
+- Inclui ação manual para liberar cache e executa a limpeza ao sair da aba Sessão.
+
+### Atualizações e assinatura
+
+- Aceita assets incrementais assinados no formato `EasySharePatch_from_<versão>_to_<versão>.exe`, mantendo o instalador completo como fallback.
+- Gera e aplica patches por blocos sobre o MSIX-base em cache, reconstruindo exatamente o pacote-alvo e validando os hashes antes da instalação.
+- O instalador agora armazena o MSIX assinado localmente para habilitar atualizações incrementais futuras.
+- Fortalece o script de assinatura com timestamp opcional e verificação `signtool /pa`.
+- Documenta o fluxo obrigatório de code signing comercial para produção.
+
 ## [1.0.0.21] - 2026-07-10
 
 ### Atualizador
