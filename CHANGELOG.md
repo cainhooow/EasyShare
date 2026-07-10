@@ -2,6 +2,13 @@
 
 Todas as mudanças relevantes do EasyShare devem ser registradas neste arquivo antes da publicação de uma release.
 
+## [1.0.0.20] - 2026-07-10
+
+### Release corrigida
+
+- Rebuild da versão corrigida com novo número para substituir a release `1.0.0.19`.
+- Mantém a validação da assinatura do MSIX e a assinatura dos artefatos antes da publicação.
+
 ## [1.0.0.19] - 2026-07-10
 
 ### Instalador
