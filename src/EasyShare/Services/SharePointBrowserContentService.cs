@@ -7,25 +7,56 @@ using EasyShare.Models;
 
 namespace EasyShare.Services;
 
+public enum UploadAttemptState
+{
+    Succeeded,
+    RetryableFailure,
+    Conflict
+}
+
+public sealed record UploadAttemptResult(UploadAttemptState State, string? Error = null);
+
 public sealed class SharePointBrowserContentService
 {
-    private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan DefaultCacheTtl = TimeSpan.FromSeconds(20);
+    private readonly LocalDatabase _database;
     private readonly ConcurrentDictionary<string, CacheEntry> _directoryCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte[]> _fileCache = new(StringComparer.OrdinalIgnoreCase);
+    private TimeSpan _cacheTtl = DefaultCacheTtl;
+
+    public SharePointBrowserContentService(LocalDatabase database)
+    {
+        _database = database;
+    }
+
+    public void ConfigureCache(TimeSpan ttl) => _cacheTtl = ttl <= TimeSpan.Zero ? DefaultCacheTtl : ttl;
 
     public IReadOnlyList<SharePointDriveItem> ListDirectory(DriveRoute route, string relativePath)
     {
         var routeInfo = SharePointRouteInfo.FromRoute(route);
-        if (routeInfo is null || !SharePointCookieStore.TryGetCookieHeader(routeInfo.SiteUri, out var cookieHeader))
+        if (routeInfo is null)
         {
             return [];
         }
 
-        var cacheKey = $"{route.Id:N}:{NormalizeRelativePath(relativePath)}";
+        var normalizedRelativePath = NormalizeRelativePath(relativePath);
+        var cacheKey = $"{route.Id:N}:{normalizedRelativePath}";
         if (_directoryCache.TryGetValue(cacheKey, out var cached) &&
-            DateTimeOffset.UtcNow - cached.CreatedAt < CacheTtl)
+            DateTimeOffset.UtcNow - cached.CreatedAt < _cacheTtl)
         {
             return cached.Items;
+        }
+
+        var persisted = _database.TryGetDirectoryCache(route.Id, normalizedRelativePath, _cacheTtl);
+        if (persisted is not null)
+        {
+            _directoryCache[cacheKey] = new CacheEntry(persisted.CachedAt, persisted.Items);
+            return persisted.Items;
+        }
+
+        if (!SharePointCookieStore.TryGetCookieHeader(routeInfo.SiteUri, out var cookieHeader))
+        {
+            return cached?.Items ?? [];
         }
 
         try
@@ -40,6 +71,7 @@ public sealed class SharePointBrowserContentService
                 .ToArray();
 
             _directoryCache[cacheKey] = new CacheEntry(DateTimeOffset.UtcNow, items);
+            _database.SaveDirectoryCache(route.Id, normalizedRelativePath, items);
             return items;
         }
         catch
@@ -171,12 +203,19 @@ public sealed class SharePointBrowserContentService
         }
     }
 
-    public bool UploadFile(DriveRoute route, string relativePath, byte[] bytes)
+    public bool UploadFile(DriveRoute route, string relativePath, byte[] bytes) =>
+        TryUploadFile(route, relativePath, bytes, expectedModifiedAt: null).State == UploadAttemptState.Succeeded;
+
+    public UploadAttemptResult TryUploadFile(
+        DriveRoute route,
+        string relativePath,
+        byte[] bytes,
+        DateTimeOffset? expectedModifiedAt)
     {
         var routeInfo = SharePointRouteInfo.FromRoute(route);
         if (routeInfo is null || !SharePointCookieStore.TryGetCookieHeader(routeInfo.SiteUri, out var cookieHeader))
         {
-            return false;
+            return new UploadAttemptResult(UploadAttemptState.RetryableFailure, "Sessão do SharePoint indisponível.");
         }
 
         var normalized = NormalizeRelativePath(relativePath);
@@ -184,11 +223,23 @@ public sealed class SharePointBrowserContentService
         var fileName = GetFileName(normalized);
         if (string.IsNullOrWhiteSpace(fileName))
         {
-            return false;
+            return new UploadAttemptResult(UploadAttemptState.RetryableFailure, "Caminho de arquivo inválido.");
         }
 
         try
         {
+            if (expectedModifiedAt is not null)
+            {
+                InvalidateDirectory(route, parentPath);
+                var current = GetItem(route, normalized);
+                if (current is null || Math.Abs((current.ModifiedAt - expectedModifiedAt.Value).TotalSeconds) > 2)
+                {
+                    return new UploadAttemptResult(
+                        UploadAttemptState.Conflict,
+                        "O arquivo remoto mudou enquanto o arquivo local estava sendo editado.");
+                }
+            }
+
             var digest = GetRequestDigest(routeInfo, cookieHeader);
             var folderPath = routeInfo.BuildServerRelativePath(parentPath);
             using var httpClient = CreateHttpClient();
@@ -208,20 +259,25 @@ public sealed class SharePointBrowserContentService
                 using var fallbackResponse = httpClient.Send(fallback);
                 if (!fallbackResponse.IsSuccessStatusCode)
                 {
-                    return false;
+                    return new UploadAttemptResult(
+                        UploadAttemptState.RetryableFailure,
+                        $"SharePoint retornou {(int)fallbackResponse.StatusCode}.");
                 }
             }
 
             var cacheKey = $"{route.Id:N}:{normalized}";
-            _fileCache[cacheKey] = bytes;
+            _fileCache[cacheKey] = bytes.ToArray();
             InvalidateDirectory(route, parentPath);
-            return true;
+            return new UploadAttemptResult(UploadAttemptState.Succeeded);
         }
         catch
         {
-            return false;
+            return new UploadAttemptResult(UploadAttemptState.RetryableFailure, "Não foi possível enviar o arquivo agora.");
         }
     }
+
+    public void CacheLocalFile(DriveRoute route, string relativePath, byte[] bytes) =>
+        _fileCache[$"{route.Id:N}:{NormalizeRelativePath(relativePath)}"] = bytes.ToArray();
 
     public bool DeleteItem(DriveRoute route, string relativePath, bool isDirectory)
     {
@@ -344,6 +400,7 @@ public sealed class SharePointBrowserContentService
     {
         _directoryCache.Clear();
         _fileCache.Clear();
+        _database.ClearDirectoryCache();
     }
 
     private static IReadOnlyList<SharePointDriveItem> GetItems(
@@ -577,7 +634,10 @@ public sealed class SharePointBrowserContentService
     {
         var normalized = NormalizeRelativePath(relativePath);
         _directoryCache.TryRemove($"{route.Id:N}:{normalized}", out _);
-        _directoryCache.TryRemove($"{route.Id:N}:{GetParentPath(normalized)}", out _);
+        var parent = GetParentPath(normalized);
+        _directoryCache.TryRemove($"{route.Id:N}:{parent}", out _);
+        _database.InvalidateDirectoryCache(route.Id, normalized);
+        _database.InvalidateDirectoryCache(route.Id, parent);
     }
 
     private static string ToODataStringLiteral(string value) => $"'{value.Replace("'", "''")}'";

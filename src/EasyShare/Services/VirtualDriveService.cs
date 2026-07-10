@@ -25,13 +25,17 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
 {
     private readonly object _gate = new();
     private readonly SharePointBrowserContentService _contentService;
+    private readonly UploadQueueService _uploadQueue;
     private FileSystemHost? _host;
     private string? _mountedAt;
     private string? _routeSignature;
 
-    public VirtualDriveService(SharePointBrowserContentService contentService)
+    public VirtualDriveService(
+        SharePointBrowserContentService contentService,
+        UploadQueueService uploadQueue)
     {
         _contentService = contentService;
+        _uploadQueue = uploadQueue;
     }
 
     public Task<VirtualDriveStatus> GetStatusAsync(AppSettings settings, IReadOnlyCollection<DriveRoute> routes)
@@ -101,7 +105,7 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
 
         try
         {
-            var fileSystem = new EasyShareFileSystem(routes, _contentService);
+            var fileSystem = new EasyShareFileSystem(routes, _contentService, _uploadQueue);
             var host = new FileSystemHost(fileSystem)
             {
                 FileSystemName = "EasyShare",
@@ -245,15 +249,20 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
     {
         private const ulong VolumeSize = 10UL * 1024 * 1024 * 1024;
         private readonly SharePointBrowserContentService _contentService;
+        private readonly UploadQueueService _uploadQueue;
         private readonly byte[] _securityDescriptor;
         private readonly FspFileInfo _rootInfo;
         private readonly IReadOnlyList<VirtualNode> _rootChildren;
         private readonly Dictionary<string, VirtualNode> _rootNodes;
         private readonly ConcurrentDictionary<string, bool> _deleteOnClose = new(StringComparer.OrdinalIgnoreCase);
 
-        public EasyShareFileSystem(IReadOnlyList<DriveRoute> routes, SharePointBrowserContentService contentService)
+        public EasyShareFileSystem(
+            IReadOnlyList<DriveRoute> routes,
+            SharePointBrowserContentService contentService,
+            UploadQueueService uploadQueue)
         {
             _contentService = contentService;
+            _uploadQueue = uploadQueue;
             _securityDescriptor = CreateSecurityDescriptor();
             _rootInfo = CreateDirectoryInfo(1);
             _rootChildren = BuildRouteNodes(routes);
@@ -707,21 +716,19 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
                 return STATUS_SUCCESS;
             }
 
-            if (handle.Node.Route is null ||
-                !_contentService.UploadFile(handle.Node.Route, handle.Node.RelativePath, handle.ToArray(_contentService)))
+            if (handle.Node.Route is null)
             {
                 return STATUS_ACCESS_DENIED;
             }
 
-            var uploaded = _contentService.GetItem(handle.Node.Route, handle.Node.RelativePath);
-            if (uploaded is not null)
-            {
-                handle.ReplaceInfo(ToFileInfo(uploaded));
-            }
-            else
-            {
-                handle.MarkUploaded();
-            }
+            var bytes = handle.ToArray(_contentService);
+            _contentService.CacheLocalFile(handle.Node.Route, handle.Node.RelativePath, bytes);
+            _uploadQueue.Enqueue(
+                handle.Node.Route,
+                handle.Node.RelativePath,
+                bytes,
+                handle.ExpectedModifiedAt);
+            handle.MarkUploaded();
 
             fileInfo = handle.Info;
             return STATUS_SUCCESS;
@@ -1008,11 +1015,16 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
             Node = node;
             Info = node.Info;
             _isNew = isNew;
+            ExpectedModifiedAt = isNew || node.Info.LastWriteTime == 0
+                ? null
+                : DateTimeOffset.FromFileTime((long)node.Info.LastWriteTime).ToUniversalTime();
         }
 
         public VirtualNode Node { get; }
 
         public FspFileInfo Info { get; private set; }
+
+        public DateTimeOffset? ExpectedModifiedAt { get; }
 
         public bool IsDirty { get; private set; }
 

@@ -63,7 +63,7 @@ public sealed class MainPageViewModel : ObservableObject
 
     public int ConnectedRouteCount => Routes.Count(route => route.IsConnected);
 
-    public int PendingUploadCount => SyncJobs.Count(job => job.State is SyncJobState.Waiting or SyncJobState.Uploading or SyncJobState.Failed);
+    public int PendingUploadCount => SyncJobs.Count(job => job.State is SyncJobState.Waiting or SyncJobState.Uploading or SyncJobState.Failed or SyncJobState.Conflict);
 
     public string DatabasePath => _database.DatabasePath;
 
@@ -371,12 +371,14 @@ public sealed class MainPageViewModel : ObservableObject
             _settings = await _database.GetSettingsAsync();
             var requestedStartup = _settings.StartWithWindows;
             var actualStartup = await _startupService.IsEnabledAsync();
-            if (requestedStartup && !actualStartup)
+            if (requestedStartup != actualStartup)
             {
-                actualStartup = await _startupService.SetEnabledAsync(true, _settings.StartMinimized);
+                actualStartup = await _startupService.SetEnabledAsync(requestedStartup, _settings.StartMinimized);
             }
 
-            _settings.StartWithWindows = actualStartup;
+            // The persisted preference is authoritative. If Windows refuses a change,
+            // do not silently turn a disabled preference back on during startup.
+            _settings.StartWithWindows = requestedStartup && actualStartup;
 
             _authStatus = IsBrowserSessionMode
                 ? BrowserSessionStatus(AppText.Get("BrowserStatusNeedSession"), signedIn: false)
@@ -399,6 +401,23 @@ public sealed class MainPageViewModel : ObservableObject
 
             RefreshState();
         });
+    }
+
+    public void ApplySyncJob(SyncJob job)
+    {
+        var index = SyncJobs.IndexOf(SyncJobs.FirstOrDefault(item => item.Id == job.Id)!);
+        if (index >= 0)
+        {
+            SyncJobs[index] = job;
+        }
+        else
+        {
+            SyncJobs.Insert(0, job);
+        }
+
+        OnPropertyChanged(nameof(PendingUploadCount));
+        OnPropertyChanged(nameof(EmptySyncVisibility));
+        OnPropertyChanged(nameof(SyncListVisibility));
     }
 
     public async Task SignInAsync(IntPtr windowHandle)

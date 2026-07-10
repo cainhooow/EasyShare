@@ -69,7 +69,8 @@ public sealed class MsalAuthenticationService : IAuthenticationService
         try
         {
             var application = GetApplication(settings);
-            foreach (var account in await application.GetAccountsAsync())
+            var accounts = (await application.GetAccountsAsync()).ToArray();
+            foreach (var account in accounts)
             {
                 try
                 {
@@ -82,7 +83,14 @@ public sealed class MsalAuthenticationService : IAuthenticationService
                 }
             }
 
-            var builder = application.AcquireTokenInteractive(Scopes);
+            var builder = application
+                .AcquireTokenInteractive(Scopes)
+                .WithPrompt(Prompt.SelectAccount);
+
+            if (accounts.Length == 1 && !string.IsNullOrWhiteSpace(accounts[0].Username))
+            {
+                builder = builder.WithLoginHint(accounts[0].Username);
+            }
 
             if (windowHandle != IntPtr.Zero)
             {
@@ -191,9 +199,16 @@ public sealed class MsalAuthenticationService : IAuthenticationService
                 var bytes = ProtectedData.Unprotect(protectedBytes, null, DataProtectionScope.CurrentUser);
                 args.TokenCache.DeserializeMsalV3(bytes);
             }
-            catch (CryptographicException)
+            catch (Exception ex) when (ex is CryptographicException or IOException or UnauthorizedAccessException)
             {
-                File.Delete(_paths.TokenCachePath);
+                try
+                {
+                    File.Delete(_paths.TokenCachePath);
+                }
+                catch
+                {
+                    // A locked cache will be replaced after the next successful sign-in.
+                }
             }
         });
 
@@ -207,7 +222,9 @@ public sealed class MsalAuthenticationService : IAuthenticationService
             _paths.EnsureCreated();
             var bytes = args.TokenCache.SerializeMsalV3();
             var protectedBytes = ProtectedData.Protect(bytes, null, DataProtectionScope.CurrentUser);
-            File.WriteAllBytes(_paths.TokenCachePath, protectedBytes);
+            var temporaryPath = $"{_paths.TokenCachePath}.{Guid.NewGuid():N}.tmp";
+            File.WriteAllBytes(temporaryPath, protectedBytes);
+            File.Move(temporaryPath, _paths.TokenCachePath, overwrite: true);
         });
     }
 

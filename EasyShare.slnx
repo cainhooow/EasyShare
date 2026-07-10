@@ -10,4 +10,7 @@
   <Folder Name="/src/">
     <Project Path="src/EasyShare/EasyShare.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/EasyShare.Tests/EasyShare.Tests.csproj" />
+  </Folder>
 </Solution>
