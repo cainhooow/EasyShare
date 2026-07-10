@@ -301,23 +301,21 @@ public sealed class AppUpdateService
 
     public bool TryStartInstaller(string installerPath)
     {
-        if (!File.Exists(installerPath))
-        {
-            return false;
-        }
-
         try
         {
+            var stagedPath = UpdateInstallerStager.Stage(installerPath);
+            var fullPath = Path.GetFullPath(stagedPath);
             Process.Start(new ProcessStartInfo
             {
-                FileName = Path.GetFullPath(installerPath),
-                WorkingDirectory = Path.GetDirectoryName(Path.GetFullPath(installerPath)) ?? string.Empty,
+                FileName = fullPath,
+                WorkingDirectory = Path.GetDirectoryName(fullPath) ?? string.Empty,
                 UseShellExecute = true
             });
             return true;
         }
-        catch (Win32Exception)
+        catch (Exception ex) when (ex is Win32Exception or IOException or UnauthorizedAccessException or ArgumentException)
         {
+            StartupDiagnostics.Write("Update installer launch failed.", ex);
             return false;
         }
     }
