@@ -2,6 +2,14 @@
 
 Todas as mudanças relevantes do EasyShare devem ser registradas neste arquivo antes da publicação de uma release.
 
+## [1.0.0.21] - 2026-07-10
+
+### Atualizador
+
+- Instaladores baixados agora são copiados para uma pasta temporária de execução antes do lançamento.
+- Corrige a falha do host .NET ao resolver o caminho do executável dentro de `AppData\Local\EasyShare\Updates`.
+- Adiciona teste automatizado para o estágio seguro do instalador.
+
 ## [1.0.0.20] - 2026-07-10
 
 ### Release corrigida
