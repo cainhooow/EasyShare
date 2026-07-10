@@ -18,6 +18,7 @@ namespace EasyShare;
 public sealed partial class MainPage : Page
 {
     private readonly BrowserSessionService _browserSessionService;
+    private readonly SharePointBrowserContentService _browserContent;
     private readonly DispatcherTimer _browserKeepAliveTimer = new();
     private readonly DispatcherTimer _actionMessageTimer = new();
     private bool _browserInitialized;
@@ -31,13 +32,13 @@ public sealed partial class MainPage : Page
         var paths = new AppDataPaths();
         var database = new LocalDatabase(paths);
         var authentication = new MsalAuthenticationService(paths, database);
-        var browserContent = new SharePointBrowserContentService();
+        _browserContent = new SharePointBrowserContentService();
         _browserSessionService = new BrowserSessionService(paths);
 
         ViewModel = new MainPageViewModel(
             database,
             authentication,
-            new VirtualDriveService(browserContent),
+            new VirtualDriveService(_browserContent),
             new StartupService(),
             new GraphSharePointService(authentication),
             new AppUpdateService(paths));
@@ -86,8 +87,19 @@ public sealed partial class MainPage : Page
         }
     }
 
-    private void ContentHost_SizeChanged(object sender, SizeChangedEventArgs e) =>
-        ApplySummaryCardLayout(e.NewSize.Width);
+    private void ContentHost_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var width = e.NewSize.Width;
+        ContentHost.Padding = width switch
+        {
+            >= 1200 => new Thickness(40, 28, 40, 32),
+            >= 760 => new Thickness(28, 22, 28, 28),
+            _ => new Thickness(16, 16, 16, 20)
+        };
+
+        ApplySummaryCardLayout(width);
+        ApplyResponsivePageLayouts(width);
+    }
 
     private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -333,6 +345,8 @@ public sealed partial class MainPage : Page
             _browserSessionService.ClearStoredSession();
         }
 
+        _browserContent.ClearCache();
+
         await RunWithLoadingAsync(
             ViewModel.ResetAppAsync,
             "LoadingResetTitle",
@@ -476,6 +490,7 @@ public sealed partial class MainPage : Page
     {
         await EnsureBrowserInitializedAsync(navigate: false);
         await _browserSessionService.ClearSessionAsync(SessionWebView.CoreWebView2);
+        _browserContent.ClearCache();
         var result = new RouteTestResult(false, AppText.Get("LoginClearedMessage"));
         ViewModel.UpdateBrowserSessionStatus(result);
         UpdateBrowserInfo(result);
@@ -997,6 +1012,86 @@ public sealed partial class MainPage : Page
         PlaceCard(AccountCard, row: 0, column: 0, columnSpan: 1);
         PlaceCard(VirtualRootCard, row: 1, column: 0, columnSpan: 1);
         PlaceCard(RoutesCountCard, row: 2, column: 0, columnSpan: 1);
+    }
+
+    private void ApplyResponsivePageLayouts(double width)
+    {
+        var isNarrow = width < 820;
+        var compactAbout = width < 1280;
+        var compactFooter = width < 900;
+
+        HelpLayoutGrid.ColumnDefinitions[0].Width = isNarrow
+            ? new GridLength(1, GridUnitType.Star)
+            : new GridLength(320);
+        HelpLayoutGrid.ColumnDefinitions[1].Width = isNarrow
+            ? new GridLength(0)
+            : new GridLength(1, GridUnitType.Star);
+        Grid.SetRow(HelpIntroCard, 0);
+        Grid.SetColumn(HelpIntroCard, 0);
+        Grid.SetRowSpan(HelpIntroCard, isNarrow ? 1 : 2);
+        Grid.SetRow(HelpQuestionsPanel, isNarrow ? 1 : 0);
+        Grid.SetColumn(HelpQuestionsPanel, isNarrow ? 0 : 1);
+        Grid.SetRowSpan(HelpQuestionsPanel, isNarrow ? 1 : 2);
+
+        AboutLayoutGrid.ColumnDefinitions[0].Width = new GridLength(1, GridUnitType.Star);
+        AboutLayoutGrid.ColumnDefinitions[1].Width = compactAbout
+            ? new GridLength(0)
+            : new GridLength(1, GridUnitType.Star);
+        Grid.SetColumn(AboutHeroCard, 0);
+        Grid.SetColumnSpan(AboutHeroCard, compactAbout ? 1 : 2);
+        Grid.SetRow(AboutHeroCard, 0);
+        Grid.SetColumn(AboutInfoCard, 0);
+        Grid.SetRow(AboutInfoCard, 1);
+        Grid.SetColumn(AboutUpdateCard, compactAbout ? 0 : 1);
+        Grid.SetRow(AboutUpdateCard, compactAbout ? 2 : 1);
+        Grid.SetColumn(AboutFooterCard, 0);
+        Grid.SetColumnSpan(AboutFooterCard, compactAbout ? 1 : 2);
+        Grid.SetRow(AboutFooterCard, compactAbout ? 3 : 2);
+
+        AboutFooterGrid.ColumnDefinitions[0].Width = new GridLength(1, GridUnitType.Star);
+        AboutFooterGrid.ColumnDefinitions[1].Width = compactFooter
+            ? new GridLength(0)
+            : new GridLength(1, GridUnitType.Star);
+        AboutFooterGrid.ColumnDefinitions[2].Width = compactFooter
+            ? new GridLength(0)
+            : new GridLength(1, GridUnitType.Star);
+        Grid.SetColumn(AboutFooterAccess, 0);
+        Grid.SetRow(AboutFooterAccess, 0);
+        Grid.SetColumn(AboutFooterSession, compactFooter ? 0 : 1);
+        Grid.SetRow(AboutFooterSession, compactFooter ? 1 : 0);
+        Grid.SetColumn(AboutFooterUpdates, compactFooter ? 0 : 2);
+        Grid.SetRow(AboutFooterUpdates, compactFooter ? 2 : 0);
+
+        var compactSettings = width < 900;
+        SettingsLayoutGrid.ColumnDefinitions[0].Width = new GridLength(1, GridUnitType.Star);
+        SettingsLayoutGrid.ColumnDefinitions[1].Width = compactSettings
+            ? new GridLength(0)
+            : new GridLength(1, GridUnitType.Star);
+        Grid.SetColumn(SettingsAccessCard, 0);
+        Grid.SetColumnSpan(SettingsAccessCard, compactSettings ? 1 : 2);
+        Grid.SetRow(SettingsAccessCard, 0);
+        Grid.SetColumn(SettingsDriveCard, 0);
+        Grid.SetRow(SettingsDriveCard, 1);
+        Grid.SetColumn(SettingsSessionCard, compactSettings ? 0 : 1);
+        Grid.SetRow(SettingsSessionCard, compactSettings ? 2 : 1);
+        Grid.SetColumn(SettingsActionsPanel, 0);
+        Grid.SetColumnSpan(SettingsActionsPanel, compactSettings ? 1 : 2);
+        Grid.SetRow(SettingsActionsPanel, compactSettings ? 3 : 2);
+
+        var compactAccessFields = width < 720;
+        SettingsAccessFieldsGrid.ColumnDefinitions[1].Width = compactAccessFields
+            ? new GridLength(0)
+            : new GridLength(1, GridUnitType.Star);
+        Grid.SetColumnSpan(SettingsAccessModeHelp, compactAccessFields ? 2 : 1);
+        Grid.SetRow(SettingsAccessModeHelp, compactAccessFields ? 1 : 0);
+        Grid.SetColumn(SettingsAccessModeHelp, compactAccessFields ? 0 : 1);
+        Grid.SetRow(SettingsClientId, compactAccessFields ? 2 : 1);
+        Grid.SetColumn(SettingsClientId, 0);
+        Grid.SetColumnSpan(SettingsClientId, compactAccessFields ? 2 : 1);
+        Grid.SetRow(SettingsTenant, compactAccessFields ? 3 : 1);
+        Grid.SetColumn(SettingsTenant, compactAccessFields ? 0 : 1);
+        Grid.SetColumnSpan(SettingsTenant, compactAccessFields ? 2 : 1);
+        Grid.SetRow(SettingsClientIdHelp, compactAccessFields ? 4 : 2);
     }
 
     private static void PlaceCard(FrameworkElement card, int row, int column, int columnSpan)

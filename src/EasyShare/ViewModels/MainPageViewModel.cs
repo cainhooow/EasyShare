@@ -257,6 +257,16 @@ public sealed class MainPageViewModel : ObservableObject
 
     public InfoBarSeverity UpdateStatusSeverity => _updateStatus.Severity;
 
+    public string UpdateChangelog => _availableUpdate?.Changelog ?? string.Empty;
+
+    public string UpdateChangelogVersion => _availableUpdate is null
+        ? string.Empty
+        : AppText.Format("UpdateChangelogVersionFormat", _availableUpdate.VersionText);
+
+    public Visibility UpdateChangelogVisibility => _availableUpdate is null
+        ? Visibility.Collapsed
+        : Visibility.Visible;
+
     public bool IsCheckingUpdates
     {
         get => _isCheckingUpdates;
@@ -849,6 +859,9 @@ public sealed class MainPageViewModel : ObservableObject
         OnPropertyChanged(nameof(UpdateStatusTitle));
         OnPropertyChanged(nameof(UpdateStatusMessage));
         OnPropertyChanged(nameof(UpdateStatusSeverity));
+        OnPropertyChanged(nameof(UpdateChangelog));
+        OnPropertyChanged(nameof(UpdateChangelogVersion));
+        OnPropertyChanged(nameof(UpdateChangelogVisibility));
         OnPropertyChanged(nameof(IsCheckingUpdates));
         OnPropertyChanged(nameof(IsDownloadingUpdate));
         OnPropertyChanged(nameof(UpdateProgressValue));

@@ -1,4 +1,12 @@
 <Solution>
+  <Configurations>
+    <Platform Name="x86" />
+    <Platform Name="x64" />
+    <Platform Name="ARM64" />
+    <ProjectType>
+      <Platform Project="*" />
+    </ProjectType>
+  </Configurations>
   <Folder Name="/src/">
     <Project Path="src/EasyShare/EasyShare.csproj" />
   </Folder>

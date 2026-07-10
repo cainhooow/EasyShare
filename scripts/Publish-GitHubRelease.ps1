@@ -2,7 +2,8 @@ param(
     [string]$Repository = "cainhooow/EasyShare",
     [string]$Version = "",
     [string]$ExePath = "dist/EasyShareSetup.exe",
-    [string]$MsiPath = "dist/EasyShareSetup.msi"
+    [string]$MsiPath = "dist/EasyShareSetup.msi",
+    [string]$ChangelogPath = "CHANGELOG.md"
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,6 +24,32 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
 }
 
 $tag = "v$Version"
+$resolvedChangelogPath = Join-Path $root $ChangelogPath
+if (-not (Test-Path $resolvedChangelogPath)) {
+    throw "Changelog file was not found: $ChangelogPath"
+}
+
+$changelog = Get-Content -Raw $resolvedChangelogPath
+$escapedVersion = [regex]::Escape($Version)
+$versionHeaderPattern = "(?m)^##\s+\[?v?$escapedVersion\]?(?:\s+-.*)?\s*$"
+$versionHeader = [regex]::Match($changelog, $versionHeaderPattern)
+if (-not $versionHeader.Success) {
+    throw "No changelog section was found for version $Version in $ChangelogPath. Add a '## [$Version]' section before publishing."
+}
+
+$notesStart = $versionHeader.Index + $versionHeader.Length
+$notesTail = $changelog.Substring($notesStart)
+$nextVersionHeader = [regex]::Match($notesTail, "(?m)^##\s+")
+$releaseNotes = if ($nextVersionHeader.Success) {
+    $notesTail.Substring(0, $nextVersionHeader.Index).Trim()
+} else {
+    $notesTail.Trim()
+}
+
+if ([string]::IsNullOrWhiteSpace($releaseNotes)) {
+    throw "The changelog section for version $Version is empty. Describe what changed before publishing."
+}
+
 $resolvedAssets = @(
     Join-Path $root $ExePath
     Join-Path $root $MsiPath
@@ -39,16 +66,19 @@ foreach ($asset in $resolvedAssets) {
     }
 }
 
+$assetNotes = ($resolvedAssets | ForEach-Object { "- $(Split-Path -Leaf $_)" }) -join "`n"
 $notes = @"
-EasyShare $Version
+$releaseNotes
 
-Assets:
-$($resolvedAssets | ForEach-Object { "- $(Split-Path -Leaf $_)" } | Out-String)
+### Assets
+
+$assetNotes
 "@
 
 gh release view $tag --repo $Repository | Out-Null
 if ($LASTEXITCODE -eq 0) {
     gh release upload $tag $resolvedAssets --repo $Repository --clobber
+    gh release edit $tag --repo $Repository --title "EasyShare $Version" --notes $notes
     Write-Host "Updated release $tag in $Repository."
     exit 0
 }

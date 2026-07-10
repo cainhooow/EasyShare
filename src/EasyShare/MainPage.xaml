@@ -8,7 +8,7 @@
     xmlns:models="using:EasyShare.Models"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:resources="using:EasyShare.Resources"
-    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+    Background="Transparent"
     DataContext="{x:Bind ViewModel}"
     Loaded="Page_Loaded"
     mc:Ignorable="d">
@@ -19,6 +19,7 @@
 
     <NavigationView
         x:Name="RootNavigation"
+        Background="Transparent"
         CompactPaneLength="48"
         IsBackButtonVisible="Collapsed"
         IsPaneToggleButtonVisible="True"
@@ -69,7 +70,8 @@
 
         <Grid
             x:Name="ContentHost"
-            Padding="24,16,24,24"
+            Background="Transparent"
+            Padding="32,24,32,32"
             SizeChanged="ContentHost_SizeChanged">
             <ScrollViewer
                 x:Name="HomeView"
@@ -103,7 +105,7 @@
                         Title="{Binding ConnectionTitle}" />
 
                     <CommandBar
-                        Background="Transparent"
+                        Background="{ThemeResource EasyShareCommandBarBackgroundBrush}"
                         DefaultLabelPosition="Right"
                         HorizontalAlignment="Stretch"
                         Margin="0,-4,0,-6">
@@ -150,10 +152,10 @@
                         <Border
                             x:Name="AccountCard"
                             Padding="18"
-                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            Background="{ThemeResource EasyShareSurfaceBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                             BorderThickness="1"
-                            CornerRadius="8">
+                            CornerRadius="{StaticResource EasyShareCardCornerRadius}">
                             <StackPanel Spacing="4">
                                 <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=CardAccount}" />
                                 <TextBlock
@@ -167,10 +169,10 @@
                             x:Name="VirtualRootCard"
                             Grid.Column="1"
                             Padding="18"
-                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            Background="{ThemeResource EasyShareSurfaceBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                             BorderThickness="1"
-                            CornerRadius="8">
+                            CornerRadius="{StaticResource EasyShareCardCornerRadius}">
                             <StackPanel Spacing="4">
                                 <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=CardVirtualDrive}" />
                                 <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding VirtualRoot}" />
@@ -185,10 +187,10 @@
                             x:Name="RoutesCountCard"
                             Grid.Column="2"
                             Padding="18"
-                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            Background="{ThemeResource EasyShareSurfaceBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                             BorderThickness="1"
-                            CornerRadius="8">
+                            CornerRadius="{StaticResource EasyShareCardCornerRadius}">
                             <StackPanel Spacing="4">
                                 <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=CardRoutes}" />
                                 <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding ConnectedRouteCount}" />
@@ -230,8 +232,10 @@
                         </ListView>
                         <Border
                             Padding="18"
-                            Background="{ThemeResource LayerFillColorDefaultBrush}"
-                            CornerRadius="8"
+                            Background="{ThemeResource EasyShareSurfaceBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="{StaticResource EasyShareInnerCornerRadius}"
                             Visibility="{Binding EmptyRoutesVisibility}">
                             <StackPanel Spacing="8">
                                 <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=EmptyRoutesTitle}" />
@@ -247,7 +251,9 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
-                <CommandBar DefaultLabelPosition="Right">
+                <CommandBar
+                    Background="{ThemeResource EasyShareCommandBarBackgroundBrush}"
+                    DefaultLabelPosition="Right">
                     <AppBarButton Click="AddRouteButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionAdd}">
                         <AppBarButton.Icon>
                             <SymbolIcon Symbol="Add" />
@@ -267,7 +273,14 @@
                     Visibility="{Binding RoutesListVisibility}">
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="models:DriveRoute">
-                            <Grid Padding="0,12" ColumnSpacing="16">
+                            <Border
+                                Margin="0,4"
+                                Padding="16"
+                                Background="{ThemeResource EasyShareSurfaceBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1"
+                                CornerRadius="{StaticResource EasyShareInnerCornerRadius}">
+                            <Grid ColumnSpacing="16">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="2*" />
                                     <ColumnDefinition Width="3*" />
@@ -304,16 +317,19 @@
                                     </Button>
                                 </StackPanel>
                             </Grid>
+                            </Border>
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
-                <Border
-                    Grid.Row="1"
-                    Padding="22"
-                    HorizontalAlignment="Stretch"
-                    VerticalAlignment="Top"
-                    Background="{ThemeResource LayerFillColorDefaultBrush}"
-                    CornerRadius="8"
+                    <Border
+                        Grid.Row="1"
+                        Padding="22"
+                        HorizontalAlignment="Stretch"
+                        VerticalAlignment="Top"
+                        Background="{ThemeResource EasyShareSurfaceBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                    CornerRadius="{StaticResource EasyShareInnerCornerRadius}"
                     Visibility="{Binding EmptyRoutesVisibility}">
                     <StackPanel Spacing="12">
                         <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=EmptyRoutesTitle}" />
@@ -343,7 +359,14 @@
                     Visibility="{Binding SyncListVisibility}">
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="models:SyncJob">
-                            <Grid Padding="0,12" ColumnSpacing="16">
+                            <Border
+                                Margin="0,4"
+                                Padding="16"
+                                Background="{ThemeResource EasyShareSurfaceBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1"
+                                CornerRadius="{StaticResource EasyShareInnerCornerRadius}">
+                            <Grid ColumnSpacing="16">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="180" />
@@ -358,6 +381,7 @@
                                     <ProgressBar Maximum="100" Value="{x:Bind Progress}" />
                                 </StackPanel>
                             </Grid>
+                            </Border>
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
@@ -366,8 +390,10 @@
                     Padding="22"
                     HorizontalAlignment="Stretch"
                     VerticalAlignment="Top"
-                    Background="{ThemeResource LayerFillColorDefaultBrush}"
-                    CornerRadius="8"
+                    Background="{ThemeResource EasyShareSurfaceBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="{StaticResource EasyShareInnerCornerRadius}"
                     Visibility="{Binding EmptySyncVisibility}">
                     <StackPanel Spacing="8">
                         <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=EmptySyncTitle}" />
@@ -413,7 +439,7 @@
                         KeyDown="BrowserAddressBox_KeyDown" />
                     <CommandBar
                         Grid.Column="1"
-                        Background="Transparent"
+                        Background="{ThemeResource EasyShareCommandBarBackgroundBrush}"
                         DefaultLabelPosition="Right">
                         <AppBarButton Click="BrowserBackButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionBack}">
                             <AppBarButton.Icon>
@@ -467,37 +493,85 @@
                 VerticalScrollBarVisibility="Auto"
                 VerticalScrollMode="Auto"
                 Visibility="Collapsed">
-                <StackPanel
-                    Width="{Binding ActualWidth, ElementName=HelpView}"
+                <Grid
+                    x:Name="HelpLayoutGrid"
+                    Padding="0,4,0,24"
                     HorizontalAlignment="Stretch"
-                    Spacing="14">
-                    <StackPanel Spacing="4">
-                        <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=HelpTitle}" />
-                        <TextBlock Text="{Binding Source={StaticResource Text}, Path=HelpIntro}" TextWrapping="Wrap" />
-                    </StackPanel>
+                    ColumnSpacing="18"
+                    RowSpacing="16">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="320" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
 
-                    <Expander Header="{Binding Source={StaticResource Text}, Path=HelpQuestionAccessMode}">
-                        <TextBlock Text="{Binding Source={StaticResource Text}, Path=HelpAnswerAccessMode}" TextWrapping="Wrap" />
-                    </Expander>
-                    <Expander Header="{Binding Source={StaticResource Text}, Path=HelpQuestionKeepConnected}">
-                        <TextBlock Text="{Binding Source={StaticResource Text}, Path=HelpAnswerKeepConnected}" TextWrapping="Wrap" />
-                    </Expander>
-                    <Expander Header="{Binding Source={StaticResource Text}, Path=HelpQuestionPinFolder}">
-                        <TextBlock Text="{Binding Source={StaticResource Text}, Path=HelpAnswerPinFolder}" TextWrapping="Wrap" />
-                    </Expander>
-                    <Expander Header="{Binding Source={StaticResource Text}, Path=HelpQuestionDriveMissing}">
-                        <TextBlock Text="{Binding Source={StaticResource Text}, Path=HelpAnswerDriveMissing}" TextWrapping="Wrap" />
-                    </Expander>
-                    <Expander Header="{Binding Source={StaticResource Text}, Path=HelpQuestionEditFolder}">
-                        <TextBlock Text="{Binding Source={StaticResource Text}, Path=HelpAnswerEditFolder}" TextWrapping="Wrap" />
-                    </Expander>
-                    <Expander Header="{Binding Source={StaticResource Text}, Path=HelpQuestionTray}">
-                        <TextBlock Text="{Binding Source={StaticResource Text}, Path=HelpAnswerTray}" TextWrapping="Wrap" />
-                    </Expander>
-                    <Expander Header="{Binding Source={StaticResource Text}, Path=HelpQuestionReset}">
-                        <TextBlock Text="{Binding Source={StaticResource Text}, Path=HelpAnswerReset}" TextWrapping="Wrap" />
-                    </Expander>
-                </StackPanel>
+                    <Border
+                        x:Name="HelpIntroCard"
+                        Grid.RowSpan="2"
+                        Padding="24"
+                        Background="{ThemeResource EasyShareSurfaceBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="{StaticResource EasyShareCardCornerRadius}">
+                        <StackPanel Spacing="16">
+                            <Border
+                                Width="56"
+                                Height="56"
+                                HorizontalAlignment="Left"
+                                Background="{ThemeResource EasyShareAccentSoftBrush}"
+                                CornerRadius="{StaticResource EasyShareIconCornerRadius}">
+                                <SymbolIcon
+                                    Foreground="{ThemeResource EasyShareAccentBrush}"
+                                    Symbol="Help" />
+                            </Border>
+                            <TextBlock Style="{ThemeResource TitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=HelpTitle}" />
+                            <TextBlock
+                                Style="{ThemeResource SubtitleTextBlockStyle}"
+                                Text="{Binding Source={StaticResource Text}, Path=HelpIntro}"
+                                TextWrapping="Wrap" />
+                            <Border
+                                Padding="16"
+                                Background="{ThemeResource EasyShareSurfaceSubtleBrush}"
+                                CornerRadius="{StaticResource EasyShareInnerCornerRadius}">
+                                <TextBlock
+                                    Text="{Binding Source={StaticResource Text}, Path=HelpIntro}"
+                                    TextWrapping="Wrap" />
+                            </Border>
+                        </StackPanel>
+                    </Border>
+
+                    <StackPanel
+                        x:Name="HelpQuestionsPanel"
+                        Grid.Column="1"
+                        Grid.RowSpan="2"
+                        Spacing="10">
+                        <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="Perguntas frequentes" />
+                        <Expander Header="{Binding Source={StaticResource Text}, Path=HelpQuestionAccessMode}">
+                            <TextBlock Padding="16,4,16,16" Text="{Binding Source={StaticResource Text}, Path=HelpAnswerAccessMode}" TextWrapping="Wrap" />
+                        </Expander>
+                        <Expander Header="{Binding Source={StaticResource Text}, Path=HelpQuestionKeepConnected}">
+                            <TextBlock Padding="16,4,16,16" Text="{Binding Source={StaticResource Text}, Path=HelpAnswerKeepConnected}" TextWrapping="Wrap" />
+                        </Expander>
+                        <Expander Header="{Binding Source={StaticResource Text}, Path=HelpQuestionPinFolder}">
+                            <TextBlock Padding="16,4,16,16" Text="{Binding Source={StaticResource Text}, Path=HelpAnswerPinFolder}" TextWrapping="Wrap" />
+                        </Expander>
+                        <Expander Header="{Binding Source={StaticResource Text}, Path=HelpQuestionDriveMissing}">
+                            <TextBlock Padding="16,4,16,16" Text="{Binding Source={StaticResource Text}, Path=HelpAnswerDriveMissing}" TextWrapping="Wrap" />
+                        </Expander>
+                        <Expander Header="{Binding Source={StaticResource Text}, Path=HelpQuestionEditFolder}">
+                            <TextBlock Padding="16,4,16,16" Text="{Binding Source={StaticResource Text}, Path=HelpAnswerEditFolder}" TextWrapping="Wrap" />
+                        </Expander>
+                        <Expander Header="{Binding Source={StaticResource Text}, Path=HelpQuestionTray}">
+                            <TextBlock Padding="16,4,16,16" Text="{Binding Source={StaticResource Text}, Path=HelpAnswerTray}" TextWrapping="Wrap" />
+                        </Expander>
+                        <Expander Header="{Binding Source={StaticResource Text}, Path=HelpQuestionReset}">
+                            <TextBlock Padding="16,4,16,16" Text="{Binding Source={StaticResource Text}, Path=HelpAnswerReset}" TextWrapping="Wrap" />
+                        </Expander>
+                    </StackPanel>
+                </Grid>
             </ScrollViewer>
 
             <ScrollViewer
@@ -507,99 +581,230 @@
                 VerticalScrollBarVisibility="Auto"
                 VerticalScrollMode="Auto"
                 Visibility="Collapsed">
-                <StackPanel
-                    Width="{Binding ActualWidth, ElementName=AboutView}"
+                <Grid
+                    x:Name="AboutLayoutGrid"
+                    Padding="0,4,0,24"
                     HorizontalAlignment="Stretch"
-                    Spacing="18">
-                    <StackPanel Spacing="8">
-                        <Image
-                            Width="280"
-                            Height="72"
-                            HorizontalAlignment="Left"
-                            AutomationProperties.Name="{Binding Source={StaticResource Text}, Path=AppName}"
-                            Source="Assets/LogoText.png"
-                            Stretch="Uniform" />
-                        <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=AboutTitle}" />
-                        <TextBlock Text="{Binding Source={StaticResource Text}, Path=AboutIntro}" TextWrapping="Wrap" />
-                    </StackPanel>
-
-                    <Grid ColumnSpacing="16" RowSpacing="12">
-                        <Grid.RowDefinitions>
+                    ColumnSpacing="16"
+                    RowSpacing="16">
+                    <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="220" />
+                            <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
 
-                        <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=AboutVersionLabel}" />
-                        <TextBlock Grid.Column="1" Text="{Binding AppVersion}" TextWrapping="Wrap" />
+                        <Border
+                            x:Name="AboutHeroCard"
+                            Grid.ColumnSpan="2"
+                            Padding="24"
+                            Background="{ThemeResource EasyShareSurfaceBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="{StaticResource EasyShareCardCornerRadius}">
+                            <Grid ColumnSpacing="24">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Border
+                                    Width="112"
+                                    Height="112"
+                                    Background="{ThemeResource EasyShareAccentSoftBrush}"
+                                    CornerRadius="{StaticResource EasyShareHeroIconCornerRadius}">
+                                    <Image
+                                        Width="92"
+                                        Height="92"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        AutomationProperties.Name="{Binding Source={StaticResource Text}, Path=AppName}"
+                                        Source="Assets/LogoIcon.png"
+                                        Stretch="Uniform" />
+                                </Border>
+                                <StackPanel Grid.Column="1" Spacing="8" VerticalAlignment="Center">
+                                    <TextBlock Style="{ThemeResource TitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=AboutTitle}" />
+                                    <TextBlock
+                                        Style="{ThemeResource SubtitleTextBlockStyle}"
+                                        Text="{Binding Source={StaticResource Text}, Path=AboutIntro}"
+                                        TextWrapping="Wrap" />
+                                    <TextBlock
+                                        Style="{ThemeResource CaptionTextBlockStyle}"
+                                        Text="EasyShare · acesso simples às suas pastas de trabalho"
+                                        TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Grid>
+                        </Border>
 
-                        <TextBlock Grid.Row="1" Style="{ThemeResource BodyStrongTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=AboutDeveloperLabel}" />
-                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Source={StaticResource Text}, Path=AboutDeveloperName}" TextWrapping="Wrap" />
+                        <Border
+                            x:Name="AboutInfoCard"
+                            Grid.Row="1"
+                            Padding="20"
+                            Background="{ThemeResource EasyShareSurfaceBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="{StaticResource EasyShareCardCornerRadius}">
+                            <StackPanel Spacing="14">
+                                <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="Informações do produto" />
+                                <Grid ColumnSpacing="16" RowSpacing="12">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=AboutVersionLabel}" />
+                                    <TextBlock Grid.Column="1" Text="{Binding AppVersion}" TextWrapping="Wrap" />
+                                    <TextBlock Grid.Row="1" Style="{ThemeResource BodyStrongTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=AboutDeveloperLabel}" />
+                                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Source={StaticResource Text}, Path=AboutDeveloperName}" TextWrapping="Wrap" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border
+                            x:Name="AboutUpdateCard"
+                            Grid.Row="1"
+                            Grid.Column="1"
+                            Padding="20"
+                            Background="{ThemeResource EasyShareSurfaceBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="{StaticResource EasyShareCardCornerRadius}">
+                            <StackPanel Spacing="10">
+                                <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=AboutUpdatesTitle}" />
+                                <InfoBar
+                                    IsClosable="False"
+                                    IsOpen="True"
+                                    HorizontalAlignment="Stretch"
+                                    Message="{Binding UpdateStatusMessage}"
+                                    Severity="{Binding UpdateStatusSeverity}"
+                                    Title="{Binding UpdateStatusTitle}" />
+                                <Border
+                                    Padding="14"
+                                    Background="{ThemeResource EasyShareSurfaceSubtleBrush}"
+                                    CornerRadius="{StaticResource EasyShareInnerCornerRadius}"
+                                    Visibility="{Binding UpdateChangelogVisibility}">
+                                    <StackPanel Spacing="8">
+                                        <Grid ColumnSpacing="12">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock
+                                                Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                                Text="{Binding Source={StaticResource Text}, Path=UpdateChangelogTitle}" />
+                                            <TextBlock
+                                                Grid.Column="1"
+                                                HorizontalAlignment="Right"
+                                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                                Text="{Binding UpdateChangelogVersion}" />
+                                        </Grid>
+                                        <ScrollViewer
+                                            MaxHeight="220"
+                                            VerticalScrollBarVisibility="Auto"
+                                            VerticalScrollMode="Auto">
+                                            <TextBlock
+                                                Text="{Binding UpdateChangelog}"
+                                                TextWrapping="Wrap" />
+                                        </ScrollViewer>
+                                    </StackPanel>
+                                </Border>
+                                <ProgressBar
+                                    Maximum="100"
+                                    Minimum="0"
+                                    IsIndeterminate="{Binding IsUpdateProgressIndeterminate}"
+                                    Value="{Binding UpdateProgressValue}"
+                                    Visibility="{Binding UpdateProgressVisibility}" />
+                                <TextBlock
+                                    Style="{ThemeResource CaptionTextBlockStyle}"
+                                    Text="{Binding UpdateProgressText}"
+                                    TextWrapping="Wrap"
+                                    Visibility="{Binding UpdateProgressVisibility}" />
+                                <CommandBar
+                                    Background="{ThemeResource EasyShareCommandBarBackgroundBrush}"
+                                    DefaultLabelPosition="Right">
+                                    <AppBarButton
+                                        Click="CheckUpdatesButton_Click"
+                                        IsEnabled="{Binding CanCheckForUpdates}"
+                                        Label="{Binding Source={StaticResource Text}, Path=ActionCheckUpdates}">
+                                        <AppBarButton.Icon>
+                                            <SymbolIcon Symbol="Refresh" />
+                                        </AppBarButton.Icon>
+                                    </AppBarButton>
+                                    <AppBarButton
+                                        Click="DownloadUpdateButton_Click"
+                                        IsEnabled="{Binding CanDownloadUpdate}"
+                                        Label="{Binding Source={StaticResource Text}, Path=ActionDownloadUpdate}"
+                                        Visibility="{Binding DownloadUpdateButtonVisibility}">
+                                        <AppBarButton.Icon>
+                                            <SymbolIcon Symbol="Download" />
+                                        </AppBarButton.Icon>
+                                    </AppBarButton>
+                                    <AppBarButton
+                                        Click="InstallUpdateButton_Click"
+                                        IsEnabled="{Binding CanInstallUpdate}"
+                                        Label="{Binding Source={StaticResource Text}, Path=ActionInstallUpdate}"
+                                        Visibility="{Binding InstallUpdateButtonVisibility}">
+                                        <AppBarButton.Icon>
+                                            <SymbolIcon Symbol="OpenFile" />
+                                        </AppBarButton.Icon>
+                                    </AppBarButton>
+                                    <AppBarButton
+                                        Click="OpenUpdateReleaseButton_Click"
+                                        IsEnabled="{Binding CanDownloadUpdate}"
+                                        Label="{Binding Source={StaticResource Text}, Path=ActionOpenRelease}"
+                                        Visibility="{Binding DownloadUpdateButtonVisibility}">
+                                        <AppBarButton.Icon>
+                                            <SymbolIcon Symbol="Link" />
+                                        </AppBarButton.Icon>
+                                    </AppBarButton>
+                                </CommandBar>
+                            </StackPanel>
+                        </Border>
+
+                        <Border
+                            x:Name="AboutFooterCard"
+                            Grid.Row="2"
+                            Grid.ColumnSpan="2"
+                            Padding="20"
+                            Background="{ThemeResource EasyShareSurfaceBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="{StaticResource EasyShareCardCornerRadius}">
+                            <Grid
+                                x:Name="AboutFooterGrid"
+                                ColumnSpacing="16"
+                                RowSpacing="12">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel x:Name="AboutFooterAccess" Spacing="4">
+                                    <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="Acesso centralizado" />
+                                    <TextBlock Text="Suas pastas ficam organizadas em um único lugar." TextWrapping="Wrap" />
+                                </StackPanel>
+                                <StackPanel x:Name="AboutFooterSession" Grid.Column="1" Spacing="4">
+                                    <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="Sessão integrada" />
+                                    <TextBlock Text="Entre pelo fluxo mais simples para o seu ambiente." TextWrapping="Wrap" />
+                                </StackPanel>
+                                <StackPanel x:Name="AboutFooterUpdates" Grid.Column="2" Spacing="4">
+                                    <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="Sempre atualizado" />
+                                    <TextBlock Text="Consulte novas versões diretamente pelo aplicativo." TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Grid>
+                        </Border>
                     </Grid>
-
-                    <StackPanel Spacing="10">
-                        <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=AboutUpdatesTitle}" />
-                        <InfoBar
-                            IsClosable="False"
-                            IsOpen="True"
-                            Message="{Binding UpdateStatusMessage}"
-                            Severity="{Binding UpdateStatusSeverity}"
-                            Title="{Binding UpdateStatusTitle}" />
-                        <ProgressBar
-                            Maximum="100"
-                            Minimum="0"
-                            IsIndeterminate="{Binding IsUpdateProgressIndeterminate}"
-                            Value="{Binding UpdateProgressValue}"
-                            Visibility="{Binding UpdateProgressVisibility}" />
-                        <TextBlock
-                            Style="{ThemeResource CaptionTextBlockStyle}"
-                            Text="{Binding UpdateProgressText}"
-                            TextWrapping="Wrap"
-                            Visibility="{Binding UpdateProgressVisibility}" />
-                        <CommandBar
-                            Background="Transparent"
-                            DefaultLabelPosition="Right">
-                            <AppBarButton
-                                Click="CheckUpdatesButton_Click"
-                                IsEnabled="{Binding CanCheckForUpdates}"
-                                Label="{Binding Source={StaticResource Text}, Path=ActionCheckUpdates}">
-                                <AppBarButton.Icon>
-                                    <SymbolIcon Symbol="Refresh" />
-                                </AppBarButton.Icon>
-                            </AppBarButton>
-                            <AppBarButton
-                                Click="DownloadUpdateButton_Click"
-                                IsEnabled="{Binding CanDownloadUpdate}"
-                                Label="{Binding Source={StaticResource Text}, Path=ActionDownloadUpdate}"
-                                Visibility="{Binding DownloadUpdateButtonVisibility}">
-                                <AppBarButton.Icon>
-                                    <SymbolIcon Symbol="Download" />
-                                </AppBarButton.Icon>
-                            </AppBarButton>
-                            <AppBarButton
-                                Click="InstallUpdateButton_Click"
-                                IsEnabled="{Binding CanInstallUpdate}"
-                                Label="{Binding Source={StaticResource Text}, Path=ActionInstallUpdate}"
-                                Visibility="{Binding InstallUpdateButtonVisibility}">
-                                <AppBarButton.Icon>
-                                    <SymbolIcon Symbol="OpenFile" />
-                                </AppBarButton.Icon>
-                            </AppBarButton>
-                            <AppBarButton
-                                Click="OpenUpdateReleaseButton_Click"
-                                IsEnabled="{Binding CanDownloadUpdate}"
-                                Label="{Binding Source={StaticResource Text}, Path=ActionOpenRelease}"
-                                Visibility="{Binding DownloadUpdateButtonVisibility}">
-                                <AppBarButton.Icon>
-                                    <SymbolIcon Symbol="Link" />
-                                </AppBarButton.Icon>
-                            </AppBarButton>
-                        </CommandBar>
-                    </StackPanel>
-                </StackPanel>
             </ScrollViewer>
 
             <ScrollViewer
@@ -609,140 +814,233 @@
                 VerticalScrollBarVisibility="Auto"
                 VerticalScrollMode="Auto"
                 Visibility="Collapsed">
-                <StackPanel
-                    Width="{Binding ActualWidth, ElementName=SettingsView}"
+                <Grid
+                    x:Name="SettingsLayoutGrid"
+                    Padding="0,4,0,24"
                     HorizontalAlignment="Stretch"
-                    Spacing="18">
-                <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=SettingsTitle}" />
-                <InfoBar
-                    IsClosable="False"
-                    IsOpen="True"
-                    Message="{Binding SettingsMessage}"
-                    Severity="Informational"
-                    Title="{Binding Source={StaticResource Text}, Path=SettingsStatusTitle}" />
-                <ComboBox
-                    Header="{Binding Source={StaticResource Text}, Path=SettingsAccessModeHeader}"
-                    SelectedIndex="{Binding AuthenticationModeIndex, Mode=TwoWay}">
-                    <ComboBoxItem Content="{Binding Source={StaticResource Text}, Path=SettingsAccessModeBrowser}" />
-                    <ComboBoxItem Content="{Binding Source={StaticResource Text}, Path=SettingsAccessModeGraph}" />
-                </ComboBox>
-                <TextBlock
-                    Style="{ThemeResource CaptionTextBlockStyle}"
-                    Text="{Binding Source={StaticResource Text}, Path=SettingsAccessModeHelp}"
-                    TextWrapping="Wrap" />
-                <TextBox
-                    Header="{Binding Source={StaticResource Text}, Path=SettingsClientIdHeader}"
-                    IsEnabled="{Binding IsGraphAuthMode}"
-                    PlaceholderText="{Binding Source={StaticResource Text}, Path=SettingsClientIdPlaceholder}"
-                    Text="{Binding ClientId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                <TextBox
-                    Header="{Binding Source={StaticResource Text}, Path=SettingsTenantHeader}"
-                    IsEnabled="{Binding IsGraphAuthMode}"
-                    PlaceholderText="{Binding Source={StaticResource Text}, Path=SettingsTenantPlaceholder}"
-                    Text="{Binding TenantId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                <TextBlock
-                    Style="{ThemeResource CaptionTextBlockStyle}"
-                    Text="{Binding Source={StaticResource Text}, Path=SettingsClientIdHelp}"
-                    TextWrapping="Wrap" />
-                <InfoBar
-                    IsClosable="False"
-                    IsOpen="True"
-                    Message="{Binding VirtualDriveDetail}"
-                    Severity="Informational"
-                    Title="{Binding VirtualDriveState}" />
-                <ToggleSwitch
-                    Header="{Binding Source={StaticResource Text}, Path=SettingsStartWithWindows}"
-                    IsOn="{Binding StartWithWindows, Mode=TwoWay}" />
-                <ToggleSwitch
-                    Header="{Binding Source={StaticResource Text}, Path=SettingsStartMinimized}"
-                    IsOn="{Binding StartMinimized, Mode=TwoWay}" />
-                <ToggleSwitch
-                    Header="{Binding Source={StaticResource Text}, Path=SettingsAutoDrive}"
-                    IsOn="{Binding AutoStartVirtualDrive, Mode=TwoWay}" />
-                <TextBox
-                    Header="{Binding Source={StaticResource Text}, Path=SettingsBrowserStartUrl}"
-                    PlaceholderText="{Binding Source={StaticResource Text}, Path=SettingsBrowserStartUrlPlaceholder}"
-                    Text="{Binding BrowserSessionStartUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                <ToggleSwitch
-                    Header="{Binding Source={StaticResource Text}, Path=SettingsKeepLogin}"
-                    IsOn="{Binding BrowserKeepSessionAlive, Mode=TwoWay}" />
-                <NumberBox
-                    Header="{Binding Source={StaticResource Text}, Path=SettingsKeepLoginInterval}"
-                    Minimum="5"
-                    Maximum="240"
-                    SmallChange="5"
-                    SpinButtonPlacementMode="Inline"
-                    Value="{Binding BrowserKeepAliveMinutes, Mode=TwoWay}" />
-                <TextBox
-                    Header="{Binding Source={StaticResource Text}, Path=SettingsMountPoint}"
-                    PlaceholderText="{Binding Source={StaticResource Text}, Path=SettingsMountPointPlaceholder}"
-                    Text="{Binding MountPoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                <NumberBox
-                    Header="{Binding Source={StaticResource Text}, Path=SettingsCacheMinutes}"
-                    Minimum="1"
-                    Maximum="1440"
-                    SmallChange="1"
-                    SpinButtonPlacementMode="Inline"
-                    Value="{Binding CacheMinutes, Mode=TwoWay}" />
-                <TextBox
-                    Header="{Binding Source={StaticResource Text}, Path=SettingsDatabase}"
-                    IsReadOnly="True"
-                    Text="{Binding DatabasePath}" />
-                <TextBox
-                    Header="{Binding Source={StaticResource Text}, Path=SettingsVirtualRoot}"
-                    IsReadOnly="True"
-                    Text="{Binding VirtualRoot}" />
-                <CommandBar
-                    Background="Transparent"
-                    DefaultLabelPosition="Right">
-                    <AppBarButton Click="SaveSettingsButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionSaveSettings}">
-                        <AppBarButton.Icon>
-                            <SymbolIcon Symbol="Save" />
-                        </AppBarButton.Icon>
-                    </AppBarButton>
-                    <AppBarButton
-                        Click="OpenBrowserSessionButton_Click"
-                        Label="{Binding Source={StaticResource Text}, Path=ActionOpenLogin}">
-                        <AppBarButton.Icon>
-                            <SymbolIcon Symbol="Contact" />
-                        </AppBarButton.Icon>
-                    </AppBarButton>
-                    <AppBarButton
-                        Click="OpenVirtualDriveButton_Click"
-                        IsEnabled="{Binding CanOpenInExplorer}"
-                        Label="{Binding Source={StaticResource Text}, Path=ActionOpenDrive}">
-                        <AppBarButton.Icon>
-                            <SymbolIcon Symbol="OpenFile" />
-                        </AppBarButton.Icon>
-                    </AppBarButton>
-                    <AppBarButton Click="SignInButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionSignIn}">
-                        <AppBarButton.Icon>
-                            <SymbolIcon Symbol="Contact" />
-                        </AppBarButton.Icon>
-                    </AppBarButton>
-                    <AppBarButton Click="SignOutButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionSignOut}">
-                        <AppBarButton.Icon>
-                            <SymbolIcon Symbol="Cancel" />
-                        </AppBarButton.Icon>
-                    </AppBarButton>
-                </CommandBar>
-                <StackPanel Spacing="8">
-                    <TextBlock
-                        Style="{ThemeResource CaptionTextBlockStyle}"
-                        Text="{Binding Source={StaticResource Text}, Path=SettingsResetHelp}"
-                        TextWrapping="Wrap" />
-                    <Button
-                        HorizontalAlignment="Left"
-                        Background="{ThemeResource SystemFillColorCriticalBrush}"
-                        Click="ResetAppButton_Click"
-                        Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <SymbolIcon Symbol="Delete" />
-                            <TextBlock Text="{Binding Source={StaticResource Text}, Path=ActionResetApp}" />
+                    ColumnSpacing="16"
+                    RowSpacing="16">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <Border
+                        x:Name="SettingsAccessCard"
+                        Grid.ColumnSpan="2"
+                        Padding="20"
+                        Background="{ThemeResource EasyShareSurfaceBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="{StaticResource EasyShareCardCornerRadius}">
+                        <StackPanel Spacing="12">
+                            <TextBlock Style="{ThemeResource TitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=SettingsTitle}" />
+                            <InfoBar
+                                IsClosable="False"
+                                IsOpen="True"
+                                Message="{Binding SettingsMessage}"
+                                Severity="Informational"
+                                Title="{Binding Source={StaticResource Text}, Path=SettingsStatusTitle}" />
+                            <Grid
+                                x:Name="SettingsAccessFieldsGrid"
+                                ColumnSpacing="16"
+                                RowSpacing="10">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <ComboBox
+                                    Header="{Binding Source={StaticResource Text}, Path=SettingsAccessModeHeader}"
+                                    SelectedIndex="{Binding AuthenticationModeIndex, Mode=TwoWay}">
+                                    <ComboBoxItem Content="{Binding Source={StaticResource Text}, Path=SettingsAccessModeBrowser}" />
+                                    <ComboBoxItem Content="{Binding Source={StaticResource Text}, Path=SettingsAccessModeGraph}" />
+                                </ComboBox>
+                                <TextBlock
+                                    x:Name="SettingsAccessModeHelp"
+                                    Grid.Column="1"
+                                    VerticalAlignment="Bottom"
+                                    Style="{ThemeResource CaptionTextBlockStyle}"
+                                    Text="{Binding Source={StaticResource Text}, Path=SettingsAccessModeHelp}"
+                                    TextWrapping="Wrap" />
+                                <TextBox
+                                    x:Name="SettingsClientId"
+                                    Grid.Row="1"
+                                    Header="{Binding Source={StaticResource Text}, Path=SettingsClientIdHeader}"
+                                    IsEnabled="{Binding IsGraphAuthMode}"
+                                    PlaceholderText="{Binding Source={StaticResource Text}, Path=SettingsClientIdPlaceholder}"
+                                    Text="{Binding ClientId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <TextBox
+                                    x:Name="SettingsTenant"
+                                    Grid.Row="1"
+                                    Grid.Column="1"
+                                    Header="{Binding Source={StaticResource Text}, Path=SettingsTenantHeader}"
+                                    IsEnabled="{Binding IsGraphAuthMode}"
+                                    PlaceholderText="{Binding Source={StaticResource Text}, Path=SettingsTenantPlaceholder}"
+                                    Text="{Binding TenantId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <TextBlock
+                                    x:Name="SettingsClientIdHelp"
+                                    Grid.Row="2"
+                                    Grid.ColumnSpan="2"
+                                    Style="{ThemeResource CaptionTextBlockStyle}"
+                                    Text="{Binding Source={StaticResource Text}, Path=SettingsClientIdHelp}"
+                                    TextWrapping="Wrap" />
+                            </Grid>
                         </StackPanel>
-                    </Button>
-                </StackPanel>
-                </StackPanel>
+                    </Border>
+
+                    <Border
+                        x:Name="SettingsDriveCard"
+                        Grid.Row="1"
+                        Padding="20"
+                        Background="{ThemeResource EasyShareSurfaceBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="{StaticResource EasyShareCardCornerRadius}">
+                        <StackPanel Spacing="12">
+                            <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="Unidade e inicialização" />
+                            <InfoBar
+                                IsClosable="False"
+                                IsOpen="True"
+                                Message="{Binding VirtualDriveDetail}"
+                                Severity="Informational"
+                                Title="{Binding VirtualDriveState}" />
+                            <ToggleSwitch
+                                Header="{Binding Source={StaticResource Text}, Path=SettingsStartWithWindows}"
+                                IsOn="{Binding StartWithWindows, Mode=TwoWay}" />
+                            <ToggleSwitch
+                                Header="{Binding Source={StaticResource Text}, Path=SettingsStartMinimized}"
+                                IsOn="{Binding StartMinimized, Mode=TwoWay}" />
+                            <ToggleSwitch
+                                Header="{Binding Source={StaticResource Text}, Path=SettingsAutoDrive}"
+                                IsOn="{Binding AutoStartVirtualDrive, Mode=TwoWay}" />
+                            <TextBox
+                                Header="{Binding Source={StaticResource Text}, Path=SettingsMountPoint}"
+                                PlaceholderText="{Binding Source={StaticResource Text}, Path=SettingsMountPointPlaceholder}"
+                                Text="{Binding MountPoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border
+                        x:Name="SettingsSessionCard"
+                        Grid.Row="1"
+                        Grid.Column="1"
+                        Padding="20"
+                        Background="{ThemeResource EasyShareSurfaceBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="{StaticResource EasyShareCardCornerRadius}">
+                        <StackPanel Spacing="12">
+                            <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="Sessão e cache" />
+                            <TextBox
+                                Header="{Binding Source={StaticResource Text}, Path=SettingsBrowserStartUrl}"
+                                PlaceholderText="{Binding Source={StaticResource Text}, Path=SettingsBrowserStartUrlPlaceholder}"
+                                Text="{Binding BrowserSessionStartUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <ToggleSwitch
+                                Header="{Binding Source={StaticResource Text}, Path=SettingsKeepLogin}"
+                                IsOn="{Binding BrowserKeepSessionAlive, Mode=TwoWay}" />
+                            <NumberBox
+                                Header="{Binding Source={StaticResource Text}, Path=SettingsKeepLoginInterval}"
+                                Minimum="5"
+                                Maximum="240"
+                                SmallChange="5"
+                                SpinButtonPlacementMode="Inline"
+                                Value="{Binding BrowserKeepAliveMinutes, Mode=TwoWay}" />
+                            <NumberBox
+                                Header="{Binding Source={StaticResource Text}, Path=SettingsCacheMinutes}"
+                                Minimum="1"
+                                Maximum="1440"
+                                SmallChange="1"
+                                SpinButtonPlacementMode="Inline"
+                                Value="{Binding CacheMinutes, Mode=TwoWay}" />
+                            <TextBox
+                                Header="{Binding Source={StaticResource Text}, Path=SettingsDatabase}"
+                                IsReadOnly="True"
+                                Text="{Binding DatabasePath}" />
+                            <TextBox
+                                Header="{Binding Source={StaticResource Text}, Path=SettingsVirtualRoot}"
+                                IsReadOnly="True"
+                                Text="{Binding VirtualRoot}" />
+                        </StackPanel>
+                    </Border>
+
+                    <StackPanel
+                        x:Name="SettingsActionsPanel"
+                        Grid.Row="2"
+                        Grid.ColumnSpan="2"
+                        Spacing="12">
+                        <CommandBar
+                            Background="{ThemeResource EasyShareCommandBarBackgroundBrush}"
+                            DefaultLabelPosition="Right">
+                            <AppBarButton Click="SaveSettingsButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionSaveSettings}">
+                                <AppBarButton.Icon>
+                                    <SymbolIcon Symbol="Save" />
+                                </AppBarButton.Icon>
+                            </AppBarButton>
+                            <AppBarButton Click="OpenBrowserSessionButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionOpenLogin}">
+                                <AppBarButton.Icon>
+                                    <SymbolIcon Symbol="Contact" />
+                                </AppBarButton.Icon>
+                            </AppBarButton>
+                            <AppBarButton
+                                Click="OpenVirtualDriveButton_Click"
+                                IsEnabled="{Binding CanOpenInExplorer}"
+                                Label="{Binding Source={StaticResource Text}, Path=ActionOpenDrive}">
+                                <AppBarButton.Icon>
+                                    <SymbolIcon Symbol="OpenFile" />
+                                </AppBarButton.Icon>
+                            </AppBarButton>
+                            <AppBarButton Click="SignInButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionSignIn}">
+                                <AppBarButton.Icon>
+                                    <SymbolIcon Symbol="Contact" />
+                                </AppBarButton.Icon>
+                            </AppBarButton>
+                            <AppBarButton Click="SignOutButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionSignOut}">
+                                <AppBarButton.Icon>
+                                    <SymbolIcon Symbol="Cancel" />
+                                </AppBarButton.Icon>
+                            </AppBarButton>
+                        </CommandBar>
+                        <Border
+                            Padding="16"
+                            Background="{ThemeResource EasyShareSurfaceSubtleBrush}"
+                            CornerRadius="{StaticResource EasyShareInnerCornerRadius}">
+                            <Grid ColumnSpacing="16">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock
+                                    VerticalAlignment="Center"
+                                    Style="{ThemeResource CaptionTextBlockStyle}"
+                                    Text="{Binding Source={StaticResource Text}, Path=SettingsResetHelp}"
+                                    TextWrapping="Wrap" />
+                                <Button
+                                    Grid.Column="1"
+                                    Background="{ThemeResource SystemFillColorCriticalBrush}"
+                                    Click="ResetAppButton_Click"
+                                    Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <SymbolIcon Symbol="Delete" />
+                                        <TextBlock Text="{Binding Source={StaticResource Text}, Path=ActionResetApp}" />
+                                    </StackPanel>
+                                </Button>
+                            </Grid>
+                        </Border>
+                    </StackPanel>
+                </Grid>
             </ScrollViewer>
 
             <InfoBar
@@ -757,16 +1055,16 @@
 
             <Grid
                 x:Name="LoadingOverlay"
-                Background="#99000000"
+                Background="{ThemeResource EasyShareOverlayBackgroundBrush}"
                 Visibility="Collapsed">
                 <Border
                     Padding="24"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    Background="{ThemeResource EasyShareSurfaceBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1"
-                    CornerRadius="8">
+                    CornerRadius="{StaticResource EasyShareCardCornerRadius}">
                     <StackPanel Spacing="12" HorizontalAlignment="Center">
                         <ProgressRing
                             x:Name="LoadingRing"

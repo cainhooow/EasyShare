@@ -40,6 +40,9 @@
                 Text="{Binding Source={StaticResource Text}, Path=AppName}" />
         </Grid>
 
-        <Frame x:Name="RootFrame" Grid.Row="1" />
+        <Frame
+            x:Name="RootFrame"
+            Grid.Row="1"
+            Background="Transparent" />
     </Grid>
 </Window>

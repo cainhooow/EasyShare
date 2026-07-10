@@ -340,6 +340,12 @@ public sealed class SharePointBrowserContentService
         }
     }
 
+    public void ClearCache()
+    {
+        _directoryCache.Clear();
+        _fileCache.Clear();
+    }
+
     private static IReadOnlyList<SharePointDriveItem> GetItems(
         SharePointRouteInfo routeInfo,
         string serverRelativePath,
@@ -637,7 +643,7 @@ public sealed class SharePointBrowserContentService
         public static SharePointRouteInfo? FromRoute(DriveRoute route)
         {
             if (!Uri.TryCreate(route.SharePointUrl, UriKind.Absolute, out var siteUri) ||
-                !siteUri.Host.Contains("sharepoint.com", StringComparison.OrdinalIgnoreCase))
+                !SharePointRouteParser.IsAllowedSharePointUri(siteUri))
             {
                 return null;
             }

@@ -1,0 +1,38 @@
+# Changelog
+
+Todas as mudanças relevantes do EasyShare devem ser registradas neste arquivo antes da publicação de uma release.
+
+## [1.0.0.17] - 2026-07-10
+
+### Interface
+
+- Redesign responsivo das telas Ajuda, Sobre e Ajustes.
+- Fundos opacos para diálogos e overlays.
+- Melhor aproveitamento da largura disponível e correção de sobreposição nos campos de Ajustes.
+- Superfícies dos cartões padronizadas com acabamento esmaecido, translúcido e bordas arredondadas.
+- Raios de canto consistentes em cartões, estados vazios, InfoBars, campos e botões.
+
+### Segurança
+
+- Validação restrita de URLs SharePoint para HTTPS e hosts permitidos.
+- Limpeza dos caches de conteúdo ao resetar ou encerrar a sessão.
+
+### Atualizações
+
+- Changelog da release passa a ser lido pelo updater e exibido na tela Sobre quando uma nova versão estiver disponível.
+- Publicação de release passa a exigir uma seção de changelog correspondente à versão.
+
+### Projeto e documentação
+
+- README reformulado com a dor, a proposta e os benefícios do EasyShare.
+- Configurações da solução corrigidas para Debug/Release em x86, x64 e ARM64.
+
+## [1.0.0.16] - 2026-07-09
+
+### Entregue
+
+- Fluxo de atualização via GitHub Releases.
+- Sessão integrada do SharePoint via WebView2.
+- Unidade virtual baseada em WinFsp.
+- Pastas fixadas, tela de ajuda, tela Sobre, ajustes e reset local.
+- Ícone na bandeja e suporte à inicialização com o Windows.

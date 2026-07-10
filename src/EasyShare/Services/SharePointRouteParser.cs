@@ -12,11 +12,22 @@ public sealed record SharePointRouteInput(
 
 public static class SharePointRouteParser
 {
+    public static bool IsAllowedSharePointUri(Uri uri)
+    {
+        if (uri is null || uri.Scheme != Uri.UriSchemeHttps)
+        {
+            return false;
+        }
+
+        var host = uri.DnsSafeHost.TrimEnd('.');
+        return string.Equals(host, "sharepoint.com", StringComparison.OrdinalIgnoreCase) ||
+               host.EndsWith(".sharepoint.com", StringComparison.OrdinalIgnoreCase);
+    }
+
     public static bool TryParse(string value, out SharePointRouteInput route)
     {
         route = default!;
-        if (!TryCreateUri(value, out var uri) ||
-            !uri.Host.Contains("sharepoint.com", StringComparison.OrdinalIgnoreCase))
+        if (!TryCreateUri(value, out var uri) || !IsAllowedSharePointUri(uri))
         {
             return false;
         }
