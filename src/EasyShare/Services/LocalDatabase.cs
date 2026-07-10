@@ -105,6 +105,9 @@ public sealed class LocalDatabase
             BrowserSessionStartUrl = Get(values, nameof(AppSettings.BrowserSessionStartUrl), "https://www.office.com/?auth=2"),
             BrowserKeepSessionAlive = GetBool(values, nameof(AppSettings.BrowserKeepSessionAlive), true),
             BrowserKeepAliveMinutes = GetInt(values, nameof(AppSettings.BrowserKeepAliveMinutes), 20),
+            ThemeMode = GetEnum(values, nameof(AppSettings.ThemeMode), AppThemeMode.System),
+            AccentColor = Get(values, nameof(AppSettings.AccentColor), "#E86F2D"),
+            HighContrastEnabled = GetBool(values, nameof(AppSettings.HighContrastEnabled), false),
             SetupWizardCompleted = GetBool(values, nameof(AppSettings.SetupWizardCompleted), false)
         };
     }
@@ -126,6 +129,9 @@ public sealed class LocalDatabase
         await SaveSettingAsync(connection, transaction, nameof(AppSettings.BrowserSessionStartUrl), NormalizeBrowserSessionStartUrl(settings.BrowserSessionStartUrl));
         await SaveSettingAsync(connection, transaction, nameof(AppSettings.BrowserKeepSessionAlive), settings.BrowserKeepSessionAlive.ToString());
         await SaveSettingAsync(connection, transaction, nameof(AppSettings.BrowserKeepAliveMinutes), Math.Clamp(settings.BrowserKeepAliveMinutes, 5, 240).ToString());
+        await SaveSettingAsync(connection, transaction, nameof(AppSettings.ThemeMode), settings.ThemeMode.ToString());
+        await SaveSettingAsync(connection, transaction, nameof(AppSettings.AccentColor), NormalizeAccentColor(settings.AccentColor));
+        await SaveSettingAsync(connection, transaction, nameof(AppSettings.HighContrastEnabled), settings.HighContrastEnabled.ToString());
         await SaveSettingAsync(connection, transaction, nameof(AppSettings.SetupWizardCompleted), settings.SetupWizardCompleted.ToString());
         await transaction.CommitAsync();
     }
@@ -610,6 +616,16 @@ public sealed class LocalDatabase
         Uri.TryCreate(value?.Trim(), UriKind.Absolute, out var uri)
             ? uri.ToString()
             : "https://www.office.com/?auth=2";
+
+    private static string NormalizeAccentColor(string accentColor)
+    {
+        var normalized = accentColor?.Trim() ?? string.Empty;
+        return normalized.Length == 7 &&
+               normalized[0] == '#' &&
+               normalized[1..].All(Uri.IsHexDigit)
+            ? normalized.ToUpperInvariant()
+            : "#E86F2D";
+    }
 
     private static string NormalizeMountPoint(string mountPoint)
     {

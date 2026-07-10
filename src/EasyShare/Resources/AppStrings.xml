@@ -81,6 +81,16 @@
     <x:String x:Key="SettingsKeepLoginInterval">Verificar login a cada X minutos</x:String>
     <x:String x:Key="SettingsMountPoint">Ponto de montagem</x:String>
     <x:String x:Key="SettingsMountPointPlaceholder">S:</x:String>
+    <x:String x:Key="SettingsPersonalizationTitle">Personalização</x:String>
+    <x:String x:Key="SettingsPersonalizationHelp">Escolha como o EasyShare aparece. Sistema é a opção padrão e acompanha o Windows.</x:String>
+    <x:String x:Key="SettingsThemeHeader">Tema</x:String>
+    <x:String x:Key="SettingsThemeSystem">Sistema (padrão)</x:String>
+    <x:String x:Key="SettingsThemeLight">Claro</x:String>
+    <x:String x:Key="SettingsThemeDark">Escuro</x:String>
+    <x:String x:Key="SettingsAccentColorHeader">Cor de destaque</x:String>
+    <x:String x:Key="SettingsAccentColorHelp">A cor usada nos elementos de destaque do aplicativo.</x:String>
+    <x:String x:Key="SettingsHighContrast">Alto contraste</x:String>
+    <x:String x:Key="SettingsHighContrastHelp">Aumenta a diferença entre fundo, texto e elementos de ação.</x:String>
     <x:String x:Key="SettingsCacheMinutes">Cache de listagem em minutos</x:String>
     <x:String x:Key="SettingsDatabase">Banco local</x:String>
     <x:String x:Key="SettingsVirtualRoot">Unidade no Windows</x:String>

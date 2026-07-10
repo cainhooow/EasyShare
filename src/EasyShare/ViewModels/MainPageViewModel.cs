@@ -5,6 +5,7 @@ using EasyShare.Resources;
 using EasyShare.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Windows.UI;
 
 namespace EasyShare.ViewModels;
 
@@ -239,6 +240,58 @@ public sealed class MainPageViewModel : ObservableObject
             }
 
             _settings.BrowserKeepAliveMinutes = normalized;
+            OnPropertyChanged();
+        }
+    }
+
+    public int ThemeModeIndex
+    {
+        get => (int)_settings.ThemeMode;
+        set
+        {
+            var mode = Enum.IsDefined(typeof(AppThemeMode), value)
+                ? (AppThemeMode)value
+                : AppThemeMode.System;
+            if (_settings.ThemeMode == mode)
+            {
+                return;
+            }
+
+            _settings.ThemeMode = mode;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ThemeMode));
+        }
+    }
+
+    public AppThemeMode ThemeMode => _settings.ThemeMode;
+
+    public Color AccentColorValue
+    {
+        get => ParseAccentColor(_settings.AccentColor);
+        set
+        {
+            var normalized = ToAccentColorString(value);
+            if (string.Equals(_settings.AccentColor, normalized, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            _settings.AccentColor = normalized;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool HighContrastEnabled
+    {
+        get => _settings.HighContrastEnabled;
+        set
+        {
+            if (_settings.HighContrastEnabled == value)
+            {
+                return;
+            }
+
+            _settings.HighContrastEnabled = value;
             OnPropertyChanged();
         }
     }
@@ -863,6 +916,10 @@ public sealed class MainPageViewModel : ObservableObject
         OnPropertyChanged(nameof(BrowserSessionStartUrl));
         OnPropertyChanged(nameof(BrowserKeepSessionAlive));
         OnPropertyChanged(nameof(BrowserKeepAliveMinutes));
+        OnPropertyChanged(nameof(ThemeModeIndex));
+        OnPropertyChanged(nameof(ThemeMode));
+        OnPropertyChanged(nameof(AccentColorValue));
+        OnPropertyChanged(nameof(HighContrastEnabled));
         OnPropertyChanged(nameof(SettingsMessage));
         OnPropertyChanged(nameof(AppVersion));
         RefreshUpdateState();
@@ -918,6 +975,24 @@ public sealed class MainPageViewModel : ObservableObject
             ? AppText.Get("SettingsGraphReady")
             : AppText.Get("SettingsMissingClientId");
     }
+
+    private static Color ParseAccentColor(string value)
+    {
+        var normalized = value?.Trim() ?? string.Empty;
+        if (normalized.Length == 7 && normalized[0] == '#' && normalized[1..].All(Uri.IsHexDigit))
+        {
+            return Color.FromArgb(
+                255,
+                Convert.ToByte(normalized[1..3], 16),
+                Convert.ToByte(normalized[3..5], 16),
+                Convert.ToByte(normalized[5..7], 16));
+        }
+
+        return Color.FromArgb(255, 232, 111, 45);
+    }
+
+    private static string ToAccentColorString(Color color) =>
+        $"#{color.R:X2}{color.G:X2}{color.B:X2}";
 
     private static AuthStatus BrowserSessionStatus(string message, bool signedIn) =>
         new(

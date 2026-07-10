@@ -4,6 +4,12 @@ Todas as mudanças relevantes do EasyShare devem ser registradas neste arquivo a
 
 ## [1.0.0.22] - 2026-07-10
 
+### Personalização
+
+- Adiciona a seção Personalização em Ajustes com tema Sistema, Claro ou Escuro.
+- Permite escolher a cor de destaque e ativar o alto contraste do aplicativo.
+- Persiste as preferências e aplica as mudanças imediatamente sem alterar a sincronização.
+
 ### Estrutura e WebView
 
 - Separa o fluxo da sessão WebView e atualizações da tela principal em um arquivo parcial por responsabilidade.

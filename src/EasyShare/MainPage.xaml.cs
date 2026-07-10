@@ -72,6 +72,7 @@ public sealed partial class MainPage : Page
                 async () =>
                 {
                     await ViewModel.LoadAsync();
+                    ApplyAppearance();
                     _browserContent.ConfigureCache(TimeSpan.FromMinutes(ViewModel.CacheMinutes));
                     _uploadQueue.Start();
                     await RestoreBrowserSessionOnStartupAsync();
@@ -111,6 +112,13 @@ public sealed partial class MainPage : Page
         if (e.PropertyName == nameof(ViewModel.IsBusy))
         {
             UpdateLoadingOverlay();
+        }
+
+        if (e.PropertyName is nameof(ViewModel.ThemeModeIndex) or
+            nameof(ViewModel.AccentColorValue) or
+            nameof(ViewModel.HighContrastEnabled))
+        {
+            ApplyAppearance();
         }
     }
 
@@ -161,6 +169,7 @@ public sealed partial class MainPage : Page
             ViewModel.SaveSettingsAsync,
             "LoadingSaveTitle",
             "LoadingSaveMessage");
+        ApplyAppearance();
         _browserContent.ConfigureCache(TimeSpan.FromMinutes(ViewModel.CacheMinutes));
         ConfigureBrowserKeepAliveTimer();
         ShowActionMessage(AppText.Get("SettingsSavedTitle"), AppText.Get("SettingsSavedMessage"), InfoBarSeverity.Success);
@@ -172,8 +181,12 @@ public sealed partial class MainPage : Page
             ViewModel.LoadAsync,
             "LoadingRefreshTitle",
             "LoadingRefreshMessage");
+        ApplyAppearance();
         ShowActionMessage(AppText.Get("RefreshTitle"), AppText.Get("RefreshMessage"), InfoBarSeverity.Success);
     }
+
+    private void ApplyAppearance() =>
+        App.ApplyAppearance(ViewModel.ThemeMode, ViewModel.AccentColorValue, ViewModel.HighContrastEnabled);
 
     private void OpenVirtualDriveButton_Click(object sender, RoutedEventArgs e) => ViewModel.OpenVirtualDrive();
 
@@ -819,9 +832,12 @@ public sealed partial class MainPage : Page
         Grid.SetRow(SettingsDriveCard, 1);
         Grid.SetColumn(SettingsSessionCard, compactSettings ? 0 : 1);
         Grid.SetRow(SettingsSessionCard, compactSettings ? 2 : 1);
+        Grid.SetColumn(SettingsPersonalizationCard, 0);
+        Grid.SetColumnSpan(SettingsPersonalizationCard, compactSettings ? 1 : 2);
+        Grid.SetRow(SettingsPersonalizationCard, compactSettings ? 3 : 2);
         Grid.SetColumn(SettingsActionsPanel, 0);
         Grid.SetColumnSpan(SettingsActionsPanel, compactSettings ? 1 : 2);
-        Grid.SetRow(SettingsActionsPanel, compactSettings ? 3 : 2);
+        Grid.SetRow(SettingsActionsPanel, compactSettings ? 4 : 3);
 
         var compactAccessFields = width < 720;
         SettingsAccessFieldsGrid.ColumnDefinitions[1].Width = compactAccessFields

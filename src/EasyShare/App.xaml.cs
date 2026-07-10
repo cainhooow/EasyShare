@@ -1,8 +1,11 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
+using EasyShare.Models;
 using EasyShare.Resources;
 using EasyShare.Services;
 using System.Runtime.InteropServices;
 using WinRT.Interop;
+using Windows.UI;
 
 namespace EasyShare;
 
@@ -80,6 +83,105 @@ public partial class App : Application
             throw;
         }
     }
+
+    public static void ApplyAppearance(AppThemeMode themeMode, Color accentColor, bool highContrast)
+    {
+        try
+        {
+            if (MainWindow?.Content is FrameworkElement content)
+            {
+                content.RequestedTheme = highContrast
+                    ? ElementTheme.Dark
+                    : themeMode switch
+                    {
+                        AppThemeMode.Light => ElementTheme.Light,
+                        AppThemeMode.Dark => ElementTheme.Dark,
+                        _ => ElementTheme.Default
+                    };
+            }
+
+            var resources = Current.Resources;
+            var effectiveAccent = highContrast
+                ? GetSystemColor(resources, "SystemColorHighlightColor", Microsoft.UI.Colors.Yellow)
+                : accentColor;
+            resources["SystemAccentColor"] = effectiveAccent;
+
+            foreach (var entry in resources.ThemeDictionaries)
+            {
+                if (entry.Value is not ResourceDictionary themeResources)
+                {
+                    continue;
+                }
+
+                var themeName = entry.Key?.ToString();
+                if (highContrast)
+                {
+                    var windowColor = GetSystemColor(resources, "SystemColorWindowColor", Microsoft.UI.Colors.Black);
+                    SetThemeBrush(themeResources, "EasyShareShellBackgroundBrush", windowColor);
+                    SetThemeBrush(themeResources, "EasyShareSurfaceBrush", windowColor);
+                    SetThemeBrush(themeResources, "EasyShareSurfaceSubtleBrush", windowColor);
+                    SetThemeBrush(themeResources, "EasyShareCommandBarBackgroundBrush", windowColor);
+                    SetThemeBrush(themeResources, "EasyShareDialogBackgroundBrush", windowColor);
+                    SetThemeBrush(themeResources, "EasyShareOverlayBackgroundBrush", windowColor);
+                    SetThemeBrush(themeResources, "EasyShareAccentSoftBrush", windowColor);
+                }
+                else
+                {
+                    SetThemeBrush(themeResources, "EasyShareShellBackgroundBrush", Microsoft.UI.Colors.Transparent);
+                    switch (themeName)
+                    {
+                        case "Light":
+                            SetThemeBrush(themeResources, "EasyShareSurfaceBrush", Color.FromArgb(217, 255, 255, 255));
+                            SetThemeBrush(themeResources, "EasyShareSurfaceSubtleBrush", Color.FromArgb(184, 255, 255, 255));
+                            SetThemeBrush(themeResources, "EasyShareCommandBarBackgroundBrush", Microsoft.UI.Colors.Transparent);
+                            SetThemeBrush(themeResources, "EasyShareDialogBackgroundBrush", Microsoft.UI.Colors.White);
+                            SetThemeBrush(themeResources, "EasyShareOverlayBackgroundBrush", Color.FromArgb(255, 245, 247, 250));
+                            break;
+                        case "Dark":
+                            SetThemeBrush(themeResources, "EasyShareSurfaceBrush", Color.FromArgb(184, 47, 44, 48));
+                            SetThemeBrush(themeResources, "EasyShareSurfaceSubtleBrush", Color.FromArgb(168, 43, 41, 46));
+                            SetThemeBrush(themeResources, "EasyShareCommandBarBackgroundBrush", Microsoft.UI.Colors.Transparent);
+                            SetThemeBrush(themeResources, "EasyShareDialogBackgroundBrush", Color.FromArgb(255, 37, 41, 47));
+                            SetThemeBrush(themeResources, "EasyShareOverlayBackgroundBrush", Color.FromArgb(255, 23, 25, 29));
+                            break;
+                        case "HighContrast":
+                            SetThemeBrush(themeResources, "EasyShareSurfaceBrush", GetSystemColor(resources, "SystemColorWindowColor", Microsoft.UI.Colors.White));
+                            SetThemeBrush(themeResources, "EasyShareSurfaceSubtleBrush", GetSystemColor(resources, "SystemColorWindowColor", Microsoft.UI.Colors.White));
+                            SetThemeBrush(themeResources, "EasyShareCommandBarBackgroundBrush", GetSystemColor(resources, "SystemColorWindowColor", Microsoft.UI.Colors.White));
+                            SetThemeBrush(themeResources, "EasyShareDialogBackgroundBrush", GetSystemColor(resources, "SystemColorWindowColor", Microsoft.UI.Colors.White));
+                            SetThemeBrush(themeResources, "EasyShareOverlayBackgroundBrush", GetSystemColor(resources, "SystemColorWindowColor", Microsoft.UI.Colors.White));
+                            break;
+                        default:
+                            SetThemeBrush(themeResources, "EasyShareSurfaceBrush", Microsoft.UI.Colors.White);
+                            SetThemeBrush(themeResources, "EasyShareSurfaceSubtleBrush", Color.FromArgb(255, 238, 242, 246));
+                            SetThemeBrush(themeResources, "EasyShareCommandBarBackgroundBrush", Microsoft.UI.Colors.Transparent);
+                            SetThemeBrush(themeResources, "EasyShareDialogBackgroundBrush", Microsoft.UI.Colors.White);
+                            SetThemeBrush(themeResources, "EasyShareOverlayBackgroundBrush", Color.FromArgb(255, 245, 247, 250));
+                            break;
+                    }
+
+                    SetThemeBrush(
+                        themeResources,
+                        "EasyShareAccentSoftBrush",
+                        Color.FromArgb(48, effectiveAccent.R, effectiveAccent.G, effectiveAccent.B));
+                }
+
+                SetThemeBrush(themeResources, "EasyShareAccentBrush", effectiveAccent);
+            }
+        }
+        catch (Exception ex)
+        {
+            StartupDiagnostics.Write("Could not apply saved appearance settings.", ex);
+        }
+    }
+
+    private static Color GetSystemColor(ResourceDictionary resources, string key, Color fallback) =>
+        resources.TryGetValue(key, out var value) && value is Color color
+            ? color
+            : fallback;
+
+    private static void SetThemeBrush(ResourceDictionary resources, string key, Color color) =>
+        resources[key] = new SolidColorBrush(color);
 
     private static void App_UnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
     {

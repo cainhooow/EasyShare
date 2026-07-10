@@ -838,6 +838,7 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
@@ -989,9 +990,58 @@
                         </StackPanel>
                     </Border>
 
+                    <Border
+                        x:Name="SettingsPersonalizationCard"
+                        Grid.Row="2"
+                        Grid.ColumnSpan="2"
+                        Padding="20"
+                        Background="{ThemeResource EasyShareSurfaceBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="{StaticResource EasyShareCardCornerRadius}">
+                        <StackPanel Spacing="12">
+                            <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=SettingsPersonalizationTitle}" />
+                            <TextBlock
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Text="{Binding Source={StaticResource Text}, Path=SettingsPersonalizationHelp}"
+                                TextWrapping="Wrap" />
+                            <Grid ColumnSpacing="16" RowSpacing="12">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <ComboBox
+                                    Header="{Binding Source={StaticResource Text}, Path=SettingsThemeHeader}"
+                                    SelectedIndex="{Binding ThemeModeIndex, Mode=TwoWay}">
+                                    <ComboBoxItem Content="{Binding Source={StaticResource Text}, Path=SettingsThemeSystem}" />
+                                    <ComboBoxItem Content="{Binding Source={StaticResource Text}, Path=SettingsThemeLight}" />
+                                    <ComboBoxItem Content="{Binding Source={StaticResource Text}, Path=SettingsThemeDark}" />
+                                </ComboBox>
+                                <StackPanel Grid.Column="1" Spacing="4">
+                                    <TextBlock
+                                        Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                        Text="{Binding Source={StaticResource Text}, Path=SettingsAccentColorHeader}" />
+                                    <ColorPicker
+                                        AutomationProperties.HelpText="{Binding Source={StaticResource Text}, Path=SettingsAccentColorHelp}"
+                                        Color="{Binding AccentColorValue, Mode=TwoWay}"
+                                        IsAlphaEnabled="False" />
+                                </StackPanel>
+                                <ToggleSwitch
+                                    Grid.Row="1"
+                                    AutomationProperties.HelpText="{Binding Source={StaticResource Text}, Path=SettingsHighContrastHelp}"
+                                    Header="{Binding Source={StaticResource Text}, Path=SettingsHighContrast}"
+                                    IsOn="{Binding HighContrastEnabled, Mode=TwoWay}" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
                     <StackPanel
                         x:Name="SettingsActionsPanel"
-                        Grid.Row="2"
+                        Grid.Row="3"
                         Grid.ColumnSpan="2"
                         Spacing="12">
                         <CommandBar

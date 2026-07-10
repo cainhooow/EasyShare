@@ -198,6 +198,16 @@ public sealed class TextProvider
     public string SettingsMissingClientId => AppText.Get("SettingsMissingClientId");
     public string SettingsMountPoint => AppText.Get("SettingsMountPoint");
     public string SettingsMountPointPlaceholder => AppText.Get("SettingsMountPointPlaceholder");
+    public string SettingsPersonalizationTitle => AppText.Get("SettingsPersonalizationTitle");
+    public string SettingsPersonalizationHelp => AppText.Get("SettingsPersonalizationHelp");
+    public string SettingsThemeHeader => AppText.Get("SettingsThemeHeader");
+    public string SettingsThemeSystem => AppText.Get("SettingsThemeSystem");
+    public string SettingsThemeLight => AppText.Get("SettingsThemeLight");
+    public string SettingsThemeDark => AppText.Get("SettingsThemeDark");
+    public string SettingsAccentColorHeader => AppText.Get("SettingsAccentColorHeader");
+    public string SettingsAccentColorHelp => AppText.Get("SettingsAccentColorHelp");
+    public string SettingsHighContrast => AppText.Get("SettingsHighContrast");
+    public string SettingsHighContrastHelp => AppText.Get("SettingsHighContrastHelp");
     public string SettingsResetHelp => AppText.Get("SettingsResetHelp");
     public string SettingsSavedMessage => AppText.Get("SettingsSavedMessage");
     public string SettingsSavedTitle => AppText.Get("SettingsSavedTitle");
