@@ -27,14 +27,14 @@ SourceFiles0=E:\Projetos\EasyShare\dist\payload-exe\
 
 [SourceFiles0]
 %FILE0%=Install-EasyShare.ps1
-%FILE1%=EasyShare_1.0.0.18_x64.msix
+%FILE1%=EasyShare_1.0.0.19_x64.msix
 %FILE2%=EasyShare_TestCertificate.cer
 %FILE3%=Microsoft.WindowsAppRuntime.2.msix
 %FILE4%=winfsp-2.1.25156.msi
 
 [Strings]
 FILE0="Install-EasyShare.ps1"
-FILE1="EasyShare_1.0.0.18_x64.msix"
+FILE1="EasyShare_1.0.0.19_x64.msix"
 FILE2="EasyShare_TestCertificate.cer"
 FILE3="Microsoft.WindowsAppRuntime.2.msix"
 FILE4="winfsp-2.1.25156.msi"

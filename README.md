@@ -205,7 +205,25 @@ dotnet publish .\src\EasyShare\EasyShare.csproj `
   -p:AppxPackageDir=.\dist\package\
 ```
 
-O pacote de teste deve ser assinado com um certificado apropriado ao ambiente antes da instalação.
+O pacote MSIX precisa ser assinado antes de ser copiado para os instaladores EXE/MSI. Sem essa etapa, o `Add-AppxPackage` falha com `0x800B0100` mesmo que o certificado esteja instalado na máquina.
+
+Use o certificado de code signing disponível no repositório local de certificados do Windows (ou informe o thumbprint do certificado de produção):
+
+```powershell
+.\scripts\Sign-EasyShareArtifacts.ps1 `
+  -MsixPath .\dist\package\EasyShare_1.0.0.19_x64.msix `
+  -CertificateThumbprint B3BF66137620B35E9AAB46642B8790C7DBFB8273
+```
+
+Depois de assinar o MSIX, copie-o para os payloads e gere os instaladores. Assine também o EXE/MSI finais antes de publicar:
+
+```powershell
+.\scripts\Sign-EasyShareArtifacts.ps1 `
+  -MsixPath .\dist\payload-exe\EasyShare_1.0.0.19_x64.msix `
+  -ExePath .\dist\EasyShareSetup.exe `
+  -MsiPath .\dist\EasyShareSetup.msi `
+  -CertificateThumbprint B3BF66137620B35E9AAB46642B8790C7DBFB8273
+```
 
 ### Configurar outro repositório de atualizações
 
@@ -219,7 +237,7 @@ dotnet build .\src\EasyShare\EasyShare.csproj `
 
 ### Publicar uma release
 
-Antes de publicar, adicione em `CHANGELOG.md` uma seção com a versão exata do `Package.appxmanifest`, por exemplo `## [1.0.0.18] - 2026-07-10`, descrevendo o que mudou. O script bloqueia a publicação quando essa seção não existe ou está vazia.
+Antes de publicar, adicione em `CHANGELOG.md` uma seção com a versão exata do `Package.appxmanifest`, por exemplo `## [1.0.0.19] - 2026-07-10`, descrevendo o que mudou. O script bloqueia a publicação quando essa seção não existe ou está vazia.
 
 Depois de gerar os instaladores em `dist/`, use o script abaixo. É necessário ter o GitHub CLI instalado e autenticado com `gh auth login`.
 

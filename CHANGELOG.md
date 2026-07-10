@@ -2,6 +2,13 @@
 
 Todas as mudanças relevantes do EasyShare devem ser registradas neste arquivo antes da publicação de uma release.
 
+## [1.0.0.19] - 2026-07-10
+
+### Instalador
+
+- O instalador agora valida a assinatura do pacote MSIX antes de chamar `Add-AppxPackage`.
+- O fluxo de release documenta e automatiza a assinatura do MSIX, EXE e MSI, evitando o erro do Windows `0x800B0100` causado por pacotes sem assinatura.
+
 ## [1.0.0.18] - 2026-07-10
 
 ### Confiabilidade e segurança
