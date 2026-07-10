@@ -36,7 +36,7 @@ public sealed class BrowserSessionService
     public async Task<RouteTestResult> TestRouteAsync(DriveRoute route, CoreWebView2 coreWebView)
     {
         if (!Uri.TryCreate(route.SharePointUrl, UriKind.Absolute, out var sharePointUri) ||
-            !sharePointUri.Host.Contains("sharepoint.com", StringComparison.OrdinalIgnoreCase))
+            !SharePointRouteParser.IsAllowedSharePointUri(sharePointUri))
         {
             return new RouteTestResult(false, AppText.Get("BrowserRouteInvalid"));
         }
@@ -88,7 +88,7 @@ public sealed class BrowserSessionService
     {
         var route = routes.FirstOrDefault(route =>
             Uri.TryCreate(route.SharePointUrl, UriKind.Absolute, out var uri) &&
-            uri.Host.Contains("sharepoint.com", StringComparison.OrdinalIgnoreCase));
+            SharePointRouteParser.IsAllowedSharePointUri(uri));
 
         if (route is null)
         {
@@ -184,7 +184,7 @@ public sealed class BrowserSessionService
     private static Uri? TryGetSharePointUri(DriveRoute route)
     {
         return Uri.TryCreate(route.SharePointUrl, UriKind.Absolute, out var sharePointUri) &&
-               sharePointUri.Host.Contains("sharepoint.com", StringComparison.OrdinalIgnoreCase)
+               SharePointRouteParser.IsAllowedSharePointUri(sharePointUri)
             ? sharePointUri
             : null;
     }

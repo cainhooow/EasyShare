@@ -9,6 +9,97 @@
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
+
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Default">
+                    <SolidColorBrush x:Key="EasyShareShellBackgroundBrush" Color="Transparent" />
+                    <SolidColorBrush x:Key="EasyShareSurfaceBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="EasyShareSurfaceSubtleBrush" Color="#EEF2F6" />
+                    <SolidColorBrush x:Key="EasyShareCommandBarBackgroundBrush" Color="Transparent" />
+                    <SolidColorBrush x:Key="EasyShareDialogBackgroundBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="EasyShareOverlayBackgroundBrush" Color="#F5F7FA" />
+                    <SolidColorBrush x:Key="EasyShareAccentBrush" Color="#E86F2D" />
+                    <SolidColorBrush x:Key="EasyShareAccentSoftBrush" Color="#FFF0E6" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="EasyShareShellBackgroundBrush" Color="Transparent" />
+                    <SolidColorBrush x:Key="EasyShareSurfaceBrush" Color="#D9FFFFFF" />
+                    <SolidColorBrush x:Key="EasyShareSurfaceSubtleBrush" Color="#B8FFFFFF" />
+                    <SolidColorBrush x:Key="EasyShareCommandBarBackgroundBrush" Color="Transparent" />
+                    <SolidColorBrush x:Key="EasyShareDialogBackgroundBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="EasyShareOverlayBackgroundBrush" Color="#F5F7FA" />
+                    <SolidColorBrush x:Key="EasyShareAccentBrush" Color="#E86F2D" />
+                    <SolidColorBrush x:Key="EasyShareAccentSoftBrush" Color="#FFF0E6" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="EasyShareShellBackgroundBrush" Color="Transparent" />
+                    <SolidColorBrush x:Key="EasyShareSurfaceBrush" Color="#B82F2C30" />
+                    <SolidColorBrush x:Key="EasyShareSurfaceSubtleBrush" Color="#A82B292E" />
+                    <SolidColorBrush x:Key="EasyShareCommandBarBackgroundBrush" Color="Transparent" />
+                    <SolidColorBrush x:Key="EasyShareDialogBackgroundBrush" Color="#25292F" />
+                    <SolidColorBrush x:Key="EasyShareOverlayBackgroundBrush" Color="#17191D" />
+                    <SolidColorBrush x:Key="EasyShareAccentBrush" Color="#FF9A5B" />
+                    <SolidColorBrush x:Key="EasyShareAccentSoftBrush" Color="#443027" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="HighContrast">
+                    <SolidColorBrush x:Key="EasyShareShellBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
+                    <SolidColorBrush x:Key="EasyShareSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+                    <SolidColorBrush x:Key="EasyShareSurfaceSubtleBrush" Color="{ThemeResource SystemColorWindowColor}" />
+                    <SolidColorBrush x:Key="EasyShareCommandBarBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
+                    <SolidColorBrush x:Key="EasyShareDialogBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
+                    <SolidColorBrush x:Key="EasyShareOverlayBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
+                    <SolidColorBrush x:Key="EasyShareAccentBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+                    <SolidColorBrush x:Key="EasyShareAccentSoftBrush" Color="{ThemeResource SystemColorWindowColor}" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
+            <CornerRadius x:Key="EasyShareCardCornerRadius">16</CornerRadius>
+            <CornerRadius x:Key="EasyShareControlCornerRadius">10</CornerRadius>
+            <CornerRadius x:Key="EasyShareInnerCornerRadius">12</CornerRadius>
+            <CornerRadius x:Key="EasyShareIconCornerRadius">16</CornerRadius>
+            <CornerRadius x:Key="EasyShareHeroIconCornerRadius">28</CornerRadius>
+
+            <Style TargetType="ContentDialog">
+                <Setter Property="Background" Value="{ThemeResource EasyShareDialogBackgroundBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="{StaticResource EasyShareCardCornerRadius}" />
+            </Style>
+
+            <Style TargetType="Button">
+                <Setter Property="CornerRadius" Value="{StaticResource EasyShareControlCornerRadius}" />
+            </Style>
+
+            <Style TargetType="ComboBox">
+                <Setter Property="CornerRadius" Value="{StaticResource EasyShareControlCornerRadius}" />
+            </Style>
+
+            <Style TargetType="InfoBar">
+                <Setter Property="CornerRadius" Value="{StaticResource EasyShareControlCornerRadius}" />
+            </Style>
+
+            <Style TargetType="NumberBox">
+                <Setter Property="CornerRadius" Value="{StaticResource EasyShareControlCornerRadius}" />
+            </Style>
+
+            <Style TargetType="TextBox">
+                <Setter Property="CornerRadius" Value="{StaticResource EasyShareControlCornerRadius}" />
+            </Style>
+
+            <Style TargetType="Expander">
+                <Setter Property="HorizontalAlignment" Value="Stretch" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="Background" Value="{ThemeResource EasyShareSurfaceBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="{StaticResource EasyShareControlCornerRadius}" />
+            </Style>
+
+            <Style TargetType="ListViewItem">
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="Padding" Value="0" />
+            </Style>
+
         </ResourceDictionary>
     </Application.Resources>
 </Application>

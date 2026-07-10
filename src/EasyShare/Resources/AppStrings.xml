@@ -117,11 +117,14 @@
     <x:String x:Key="UpdateStatusCheckingTitle">Procurando atualização</x:String>
     <x:String x:Key="UpdateStatusCheckingMessage">Consultando a release mais recente no GitHub.</x:String>
     <x:String x:Key="UpdateStatusAvailableTitle">Atualização disponível</x:String>
-    <x:String x:Key="UpdateStatusAvailableMessage">Versão {0} disponível em {1}. Baixe e instale para atualizar.</x:String>
+    <x:String x:Key="UpdateStatusAvailableMessage">Versão {0} disponível: {1}. Baixe para atualizar.</x:String>
+    <x:String x:Key="UpdateChangelogTitle">O que há de novo</x:String>
+    <x:String x:Key="UpdateChangelogVersionFormat">Versão {0}</x:String>
+    <x:String x:Key="UpdateChangelogMissingMessage">Esta release não publicou um changelog. Consulte os detalhes da release antes de instalar.</x:String>
     <x:String x:Key="UpdateStatusRequiredTitle">Atualização obrigatória</x:String>
     <x:String x:Key="UpdateStatusRequiredMessage">Existe uma atualização obrigatória para o EasyShare.</x:String>
     <x:String x:Key="UpdateStatusNoneTitle">Nenhuma atualização encontrada</x:String>
-    <x:String x:Key="UpdateStatusNoneMessage">Você já está usando a versão mais recente do EasyShare ({0}).</x:String>
+    <x:String x:Key="UpdateStatusNoneMessage">Você já está usando a versão {0}.</x:String>
     <x:String x:Key="UpdateStatusUnknownTitle">Erro</x:String>
     <x:String x:Key="UpdateStatusUnknownMessage">Não foi possível interpretar a resposta de atualização do GitHub.</x:String>
     <x:String x:Key="UpdateStatusRepositoryMissingMessage">O repositório de atualização não foi configurado neste build.</x:String>

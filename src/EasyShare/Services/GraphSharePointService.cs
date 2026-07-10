@@ -24,7 +24,7 @@ public sealed class GraphSharePointService
         }
 
         if (!Uri.TryCreate(route.SharePointUrl, UriKind.Absolute, out var sharePointUri) ||
-            !sharePointUri.Host.Contains("sharepoint.com", StringComparison.OrdinalIgnoreCase))
+            !SharePointRouteParser.IsAllowedSharePointUri(sharePointUri))
         {
             return new RouteTestResult(false, AppText.Get("BrowserRouteInvalid"));
         }

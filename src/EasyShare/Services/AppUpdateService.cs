@@ -24,6 +24,7 @@ public sealed record AppUpdateInfo(
     Version Version,
     string TagName,
     string ReleaseName,
+    string Changelog,
     Uri ReleasePageUrl,
     string AssetName,
     long AssetSizeBytes,
@@ -162,6 +163,7 @@ public sealed class AppUpdateService
                 latestVersion,
                 release.TagName,
                 string.IsNullOrWhiteSpace(release.Name) ? release.TagName : release.Name,
+                NormalizeReleaseNotes(release.Body),
                 releasePageUrl,
                 asset.Name,
                 asset.Size,
@@ -334,6 +336,42 @@ public sealed class AppUpdateService
         return true;
     }
 
+    private static string NormalizeReleaseNotes(string? body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return AppText.Get("UpdateChangelogMissingMessage");
+        }
+
+        var lines = body
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Split('\n')
+            .Select(line =>
+            {
+                var trimmed = line.TrimStart();
+                if (trimmed.StartsWith("### ", StringComparison.Ordinal) ||
+                    trimmed.StartsWith("## ", StringComparison.Ordinal) ||
+                    trimmed.StartsWith("# ", StringComparison.Ordinal))
+                {
+                    return trimmed[(trimmed.IndexOf(' ') + 1)..];
+                }
+
+                if (trimmed.StartsWith("- ", StringComparison.Ordinal) ||
+                    trimmed.StartsWith("* ", StringComparison.Ordinal))
+                {
+                    return $"• {trimmed[2..]}";
+                }
+
+                return line;
+            });
+
+        var normalized = string.Join(Environment.NewLine, lines).Trim();
+        return normalized.Length <= 12000
+            ? normalized
+            : $"{normalized[..12000].TrimEnd()}…";
+    }
+
     private static GitHubReleaseAssetResponse? SelectInstallerAsset(IReadOnlyList<GitHubReleaseAssetResponse>? assets) =>
         assets?
             .Where(asset => !string.IsNullOrWhiteSpace(asset.BrowserDownloadUrl))
@@ -439,6 +477,9 @@ public sealed class AppUpdateService
 
         [JsonPropertyName("name")]
         public string? Name { get; init; }
+
+        [JsonPropertyName("body")]
+        public string? Body { get; init; }
 
         [JsonPropertyName("html_url")]
         public string? HtmlUrl { get; init; }

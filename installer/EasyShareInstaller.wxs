@@ -3,7 +3,7 @@
   <Package
     Name="EasyShare"
     Manufacturer="Dual Tech Informatica"
-    Version="1.0.0.16"
+    Version="1.0.0.17"
     UpgradeCode="{7B00AF84-4271-4A25-9A05-8E0895459987}"
     Scope="perUser">
 
