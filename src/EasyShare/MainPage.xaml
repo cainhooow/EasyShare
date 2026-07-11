@@ -1007,25 +1007,25 @@
                                 TextWrapping="Wrap" />
                             <Grid
                                 x:Name="SettingsPersonalizationLayout"
-                                ColumnSpacing="24"
-                                RowSpacing="16">
+                                RowSpacing="24">
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="0" />
+                                    <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="2*" />
-                                </Grid.ColumnDefinitions>
 
                                 <Grid
-                                    x:Name="SettingsPersonalizationOptionsPanel"
-                                    RowSpacing="14">
+                                    x:Name="SettingsPersonalizationOptionsGrid"
+                                    ColumnSpacing="24"
+                                    Grid.Row="0"
+                                    RowSpacing="12">
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="*" />
+                                        <RowDefinition Height="0" />
                                     </Grid.RowDefinitions>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
                                     <ComboBox
                                         Header="{Binding Source={StaticResource Text}, Path=SettingsThemeHeader}"
                                         SelectedIndex="{Binding ThemeModeIndex, Mode=TwoWay}">
@@ -1034,47 +1034,31 @@
                                         <ComboBoxItem Content="{Binding Source={StaticResource Text}, Path=SettingsThemeDark}" />
                                     </ComboBox>
                                     <ToggleSwitch
-                                        Grid.Row="1"
+                                        x:Name="SettingsHighContrastToggle"
+                                        Grid.Column="1"
                                         AutomationProperties.HelpText="{Binding Source={StaticResource Text}, Path=SettingsHighContrastHelp}"
                                         Header="{Binding Source={StaticResource Text}, Path=SettingsHighContrast}"
                                         IsOn="{Binding HighContrastEnabled, Mode=TwoWay}" />
-                                    <Border
-                                        x:Name="SettingsAppearancePreview"
-                                        Grid.Row="2"
-                                        Padding="18"
-                                        Background="{ThemeResource EasyShareAccentSoftBrush}"
-                                        CornerRadius="{StaticResource EasyShareInnerCornerRadius}"
-                                        VerticalAlignment="Stretch">
-                                        <StackPanel Spacing="10" VerticalAlignment="Center">
-                                            <TextBlock
-                                                Style="{ThemeResource BodyStrongTextBlockStyle}"
-                                                Text="{Binding Source={StaticResource Text}, Path=SettingsAppearancePreviewTitle}" />
-                                            <TextBlock
-                                                Style="{ThemeResource CaptionTextBlockStyle}"
-                                                Text="{Binding Source={StaticResource Text}, Path=SettingsAppearancePreviewText}"
-                                                TextWrapping="Wrap" />
-                                            <Button
-                                                x:Name="SettingsAppearancePreviewButton"
-                                                HorizontalAlignment="Left"
-                                                Background="{ThemeResource EasyShareAccentBrush}"
-                                                Content="{Binding Source={StaticResource Text}, Path=SettingsAppearancePreviewButton}"
-                                                Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
-                                        </StackPanel>
-                                    </Border>
                                 </Grid>
 
                                 <StackPanel
                                     x:Name="SettingsPersonalizationColorPanel"
-                                    Grid.Column="1"
+                                    Grid.Row="1"
+                                    HorizontalAlignment="Stretch"
                                     Spacing="6">
                                     <TextBlock
+                                        HorizontalAlignment="Center"
                                         Style="{ThemeResource BodyStrongTextBlockStyle}"
-                                        Text="{Binding Source={StaticResource Text}, Path=SettingsAccentColorHeader}" />
+                                        Text="{Binding Source={StaticResource Text}, Path=SettingsAccentColorHeader}"
+                                        TextAlignment="Center" />
                                     <TextBlock
+                                        HorizontalAlignment="Center"
                                         Style="{ThemeResource CaptionTextBlockStyle}"
                                         Text="{Binding Source={StaticResource Text}, Path=SettingsAccentColorHelp}"
+                                        TextAlignment="Center"
                                         TextWrapping="Wrap" />
                                     <ColorPicker
+                                        HorizontalAlignment="Center"
                                         AutomationProperties.HelpText="{Binding Source={StaticResource Text}, Path=SettingsAccentColorHelp}"
                                         Color="{Binding AccentColorValue, Mode=TwoWay}"
                                         IsAlphaEnabled="False" />

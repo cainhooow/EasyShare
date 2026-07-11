@@ -208,9 +208,6 @@ public sealed class TextProvider
     public string SettingsAccentColorHelp => AppText.Get("SettingsAccentColorHelp");
     public string SettingsHighContrast => AppText.Get("SettingsHighContrast");
     public string SettingsHighContrastHelp => AppText.Get("SettingsHighContrastHelp");
-    public string SettingsAppearancePreviewTitle => AppText.Get("SettingsAppearancePreviewTitle");
-    public string SettingsAppearancePreviewText => AppText.Get("SettingsAppearancePreviewText");
-    public string SettingsAppearancePreviewButton => AppText.Get("SettingsAppearancePreviewButton");
     public string SettingsResetHelp => AppText.Get("SettingsResetHelp");
     public string SettingsSavedMessage => AppText.Get("SettingsSavedMessage");
     public string SettingsSavedTitle => AppText.Get("SettingsSavedTitle");

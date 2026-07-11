@@ -2,6 +2,14 @@
 
 Todas as mudanças relevantes do EasyShare devem ser registradas neste arquivo antes da publicação de uma release.
 
+## [1.0.0.24] - 2026-07-10
+
+### Personalização
+
+- Remove a prévia visual da tela Personalização.
+- Reorganiza Tema e Alto contraste no topo e move a Cor de destaque para uma seção inferior alinhada.
+- Ajusta o reflow para manter os controles utilizáveis em janelas estreitas.
+
 ## [1.0.0.23] - 2026-07-10
 
 ### Personalização e interface
