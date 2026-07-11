@@ -1006,6 +1006,8 @@
                                 Text="{Binding Source={StaticResource Text}, Path=SettingsPersonalizationHelp}"
                                 TextWrapping="Wrap" />
                             <Grid
+                                HorizontalAlignment="Center"
+                                MaxWidth="1080"
                                 x:Name="SettingsPersonalizationLayout"
                                 RowSpacing="24">
                                 <Grid.RowDefinitions>

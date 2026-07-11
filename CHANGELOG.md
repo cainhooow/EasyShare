@@ -2,6 +2,13 @@
 
 Todas as mudanças relevantes do EasyShare devem ser registradas neste arquivo antes da publicação de uma release.
 
+## [1.0.0.25] - 2026-07-10
+
+### Personalização
+
+- Centraliza a grade da seção em uma largura máxima consistente com a referência visual.
+- Mantém Tema e Alto contraste alinhados no topo e a Cor de destaque centralizada abaixo.
+
 ## [1.0.0.24] - 2026-07-10
 
 ### Personalização
