@@ -274,13 +274,17 @@ Depois de gerar os instaladores em `dist/`, use o script abaixo. É necessário 
   -ExePath dist/EasyPointShareSetup.exe `
   -PatchExePath dist/EasySharePatch_from_1_0_0_25_to_1_0_26_0.exe `
   -MsixPath dist/EasyShare_1.0.26.0_x64.msix `
+  -WindowsAppRuntimePath dist/payload-exe/Microsoft.WindowsAppRuntime.2.msix `
+  -WinFspPath dist/payload-exe/winfsp-2.1.25156.msi `
+  -InstallScriptPath installer/Install-EasyShare.ps1 `
+  -CertificatePath dist/payload-exe/EasyShare_TestCertificate.cer `
   -BaseMsixPath dist/base/EasyShare_1.0.0.25_x64.msix `
   -ExpectedBaseSha256 $env:EASYSHARE_BASE_MSIX_SHA256 `
   -AdditionalAssetPaths @("dist/SHA256SUMS.txt", "dist/RELEASE-PROVENANCE.md") `
   -ExpectedPatchSignerThumbprint $env:EASYSHARE_PATCH_SIGNING_CERT_THUMBPRINT
 ```
 
-O script valida as assinaturas, a identidade explícita do assinante do patch de transição, o manifesto do pacote e os hashes do MSIX incorporado nos dois executáveis. Ele também aplica o patch sobre o pacote-base aprovado e exige reconstrução byte a byte do alvo. A release permanece em rascunho enquanto assets obsoletos são removidos e o conjunto final é conferido; MSI é rejeitado.
+O script valida as assinaturas, a identidade explícita do assinante do patch de transição, o manifesto do pacote e os hashes do MSIX incorporado nos dois executáveis. Os caminhos do Windows App Runtime, WinFsp, script de instalação e certificado são obrigatórios; nome, tamanho e SHA-256 de cada arquivo precisam coincidir com os metadados do instalador manual. O runtime tem estrutura, assinatura e identidade verificadas, o WinFsp precisa ter assinatura Authenticode do fornecedor aprovado e o certificado precisa corresponder ao MSIX alvo. O wrapper assinado eleva somente a etapa de pré-requisitos, que usa uma área temporária protegida em `Program Files`, sem redirecionamentos e acessível apenas por Administradores e SYSTEM. Depois dessa etapa, o processo original instala o MSIX no contexto do usuário que iniciou o setup; nenhum script elevado é executado a partir de cache gravável pelo usuário. Os digests dos assets são congelados antes das validações, reconferidos após elas e imediatamente antes do upload, e comparados aos digests remotos sem recalcular o valor esperado. O fluxo também aplica o patch sobre o pacote-base aprovado e exige reconstrução byte a byte do alvo. A release permanece em rascunho enquanto assets obsoletos são removidos e o conjunto final é conferido; MSI é rejeitado como asset público.
 
 O app seleciona exclusivamente o patch cujo nome canônico liga a versão instalada à release mais recente. `EasyPointShareSetup.exe` e o MSIX ficam disponíveis na página apenas para instalação inicial ou recuperação manual; não há fallback automático para pacote completo.
 
