@@ -19,14 +19,17 @@ public sealed class BrowserSessionService
 
     public Uri GetStartUri(AppSettings settings, IEnumerable<DriveRoute> routes)
     {
-        if (Uri.TryCreate(settings.BrowserSessionStartUrl, UriKind.Absolute, out var configured))
+        if (Uri.TryCreate(settings.BrowserSessionStartUrl, UriKind.Absolute, out var configured) &&
+            WebViewOriginPolicy.IsTrustedMicrosoftUri(configured))
         {
             return configured;
         }
 
         var firstRouteUrl = routes
             .Select(route => route.SharePointUrl)
-            .FirstOrDefault(url => Uri.TryCreate(url, UriKind.Absolute, out _));
+            .FirstOrDefault(url =>
+                Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+                WebViewOriginPolicy.IsTrustedMicrosoftUri(uri));
 
         return Uri.TryCreate(firstRouteUrl, UriKind.Absolute, out var routeUri)
             ? routeUri

@@ -3,32 +3,30 @@
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
-  xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest"
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   xmlns:systemai="http://schemas.microsoft.com/appx/manifest/systemai/windows10"
-  IgnorableNamespaces="uap rescap systemai desktop">
+  IgnorableNamespaces="uap rescap systemai desktop com">
 
   <Identity
-    Name="AAD584E5-8AD2-4CE5-9C65-B1C66E02383A"
-    Publisher="CN=AppPublisher"
-    Version="1.0.0.22" />
-
-  <mp:PhoneIdentity PhoneProductId="AAD584E5-8AD2-4CE5-9C65-B1C66E02383A" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
+    Name="ArchGTi.Tech.EasyPointShare"
+    Publisher="CN=EE61A1E4-12AD-426A-AE25-03DBAA7F7171"
+    Version="1.0.26.0" />
 
   <Properties>
-    <DisplayName>EasyShare</DisplayName>
-    <PublisherDisplayName>AppPublisher</PublisherDisplayName>
+    <DisplayName>EasyPointShare</DisplayName>
+    <PublisherDisplayName>ArchGTi.Tech</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
 
   <Dependencies>
-    <TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26226.0" />
     <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26226.0" />
   </Dependencies>
 
   <Resources>
-    <Resource Language="x-generate"/>
+    <Resource Language="pt-BR"/>
+    <Resource Language="en-US"/>
   </Resources>
 
   <Applications>
@@ -36,7 +34,7 @@
       Executable="$targetnametoken$.exe"
       EntryPoint="$targetentrypoint$">
       <uap:VisualElements
-        DisplayName="EasyShare"
+        DisplayName="EasyPointShare"
         Description="EasyShare"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
@@ -45,6 +43,20 @@
         <uap:SplashScreen Image="Assets\SplashScreen.png" />
       </uap:VisualElements>
       <Extensions>
+        <desktop:Extension Category="windows.toastNotificationActivation">
+          <desktop:ToastNotificationActivation
+            ToastActivatorCLSID="E6C7D45F-6A09-4E76-A03C-7B3B9D2560A1" />
+        </desktop:Extension>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:ExeServer
+              Executable="EasyShare.exe"
+              Arguments="----AppNotificationActivated:"
+              DisplayName="EasyShare">
+              <com:Class Id="E6C7D45F-6A09-4E76-A03C-7B3B9D2560A1" />
+            </com:ExeServer>
+          </com:ComServer>
+        </com:Extension>
         <desktop:Extension
           Category="windows.startupTask"
           Executable="EasyShare.exe"
@@ -52,7 +64,7 @@
           <desktop:StartupTask
             TaskId="EasyShareStartupTask"
             Enabled="false"
-            DisplayName="EasyShare" />
+            DisplayName="EasyPointShare" />
         </desktop:Extension>
       </Extensions>
     </Application>

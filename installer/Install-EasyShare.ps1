@@ -10,7 +10,7 @@ $ErrorActionPreference = "Stop"
 
 $root = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $cacheRoot = Join-Path $env:ProgramData "EasyShare\InstallerCache"
-$defaultPackageName = "EasyShare_1.0.0.22_x64.msix"
+$defaultPackageName = "EasyShare_1.0.26.0_x64.msix"
 $package = if ([string]::IsNullOrWhiteSpace($PackagePath)) {
     Join-Path $root $defaultPackageName
 } else {
@@ -23,7 +23,7 @@ $dependency = Join-Path $root "Dependencies\x64\Microsoft.WindowsAppRuntime.2.ms
 if (-not (Test-Path -LiteralPath $dependency)) {
     $dependency = Join-Path $root "Microsoft.WindowsAppRuntime.2.msix"
 }
-$aumid = "AAD584E5-8AD2-4CE5-9C65-B1C66E02383A_1z32rh13vfry6!App"
+$aumid = "ArchGTi.Tech.EasyPointShare_qjy908w4vdt2j!App"
 
 if (-not $MachinePrerequisitesOnly -and -not (Test-Path -LiteralPath $package)) {
     throw "Pacote EasyShare nao encontrado: $package"

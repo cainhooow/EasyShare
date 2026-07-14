@@ -5,18 +5,21 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:local="using:EasyShare"
+    xmlns:controls="using:EasyShare.Controls"
     xmlns:models="using:EasyShare.Models"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:resources="using:EasyShare.Resources"
     Background="Transparent"
     DataContext="{x:Bind ViewModel}"
     Loaded="Page_Loaded"
+    Unloaded="Page_Unloaded"
     mc:Ignorable="d">
 
     <Page.Resources>
         <resources:TextProvider x:Key="Text" />
     </Page.Resources>
 
+    <Grid>
     <NavigationView
         x:Name="RootNavigation"
         Background="Transparent"
@@ -34,6 +37,11 @@
                 Tag="Home">
                 <NavigationViewItem.Icon>
                     <SymbolIcon Symbol="Home" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem Content="{Binding Source={StaticResource Text}, Path=NavExplorer}" Tag="Explorer">
+                <NavigationViewItem.Icon>
+                    <FontIcon Glyph="&#xE838;" />
                 </NavigationViewItem.Icon>
             </NavigationViewItem>
             <NavigationViewItem Content="{Binding Source={StaticResource Text}, Path=NavRoutes}" Tag="Routes">
@@ -84,13 +92,23 @@
                     HorizontalAlignment="Stretch"
                     Spacing="14">
                     <StackPanel Spacing="8">
-                        <Image
-                            Width="320"
-                            Height="82"
-                            HorizontalAlignment="Left"
-                            AutomationProperties.Name="{Binding Source={StaticResource Text}, Path=AppName}"
-                            Source="Assets/LogoText.png"
-                            Stretch="Uniform" />
+                        <Grid HorizontalAlignment="Left" ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="56" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Image
+                                Width="52"
+                                Height="52"
+                                AutomationProperties.Name="{Binding Source={StaticResource Text}, Path=AppName}"
+                                Source="Assets/LogoIcon.png"
+                                Stretch="Uniform" />
+                            <TextBlock
+                                Grid.Column="1"
+                                VerticalAlignment="Center"
+                                Style="{ThemeResource TitleTextBlockStyle}"
+                                Text="{Binding Source={StaticResource Text}, Path=AppName}" />
+                        </Grid>
                         <TextBlock
                             Style="{ThemeResource BodyTextBlockStyle}"
                             Text="{Binding Source={StaticResource Text}, Path=HomeSubtitle}"
@@ -109,7 +127,7 @@
                         DefaultLabelPosition="Right"
                         HorizontalAlignment="Stretch"
                         Margin="0,-4,0,-6">
-                        <AppBarButton Click="SignInButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionSignIn}">
+                        <AppBarButton Click="SignInButton_Click" IsEnabled="{Binding IsInteractiveSignInAllowed}" Label="{Binding Source={StaticResource Text}, Path=ActionSignIn}">
                             <AppBarButton.Icon>
                                 <SymbolIcon Symbol="Contact" />
                             </AppBarButton.Icon>
@@ -246,6 +264,8 @@
                 </StackPanel>
             </ScrollViewer>
 
+            <controls:SharePointExplorerControl x:Name="SharePointExplorer" Visibility="Collapsed" />
+
             <Grid x:Name="RoutesView" Visibility="Collapsed">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -292,7 +312,7 @@
                                     <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind LastCheckedText}" />
                                 </StackPanel>
                                 <StackPanel Grid.Column="1" Spacing="3">
-                                    <TextBlock Text="{x:Bind SharePointUrl}" TextWrapping="Wrap" />
+                                    <TextBlock Text="{x:Bind LocationUrl}" TextWrapping="Wrap" />
                                     <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind RemotePath}" />
                                     <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind StatusText}" />
                                 </StackPanel>
@@ -346,71 +366,7 @@
                 </Border>
             </Grid>
 
-            <Grid x:Name="SyncView" Visibility="Collapsed">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
-                <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=SyncTitle}" />
-                <ListView
-                    Grid.Row="1"
-                    ItemsSource="{Binding SyncJobs}"
-                    SelectionMode="None"
-                    Visibility="{Binding SyncListVisibility}">
-                    <ListView.ItemTemplate>
-                        <DataTemplate x:DataType="models:SyncJob">
-                            <Border
-                                Margin="0,4"
-                                Padding="16"
-                                Background="{ThemeResource EasyShareSurfaceBrush}"
-                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                BorderThickness="1"
-                                CornerRadius="{StaticResource EasyShareInnerCornerRadius}">
-                            <Grid ColumnSpacing="16">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="180" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Spacing="3">
-                                    <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="{x:Bind FileName}" />
-                                    <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind RouteDisplayName}" />
-                                    <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind UpdatedText}" />
-                                    <TextBlock
-                                        Foreground="{ThemeResource SystemFillColorCriticalBrush}"
-                                        Text="{x:Bind LastError}"
-                                        TextWrapping="Wrap" />
-                                </StackPanel>
-                                <StackPanel Grid.Column="1" Spacing="6">
-                                    <TextBlock Text="{x:Bind StateText}" />
-                                    <ProgressBar Maximum="100" Value="{x:Bind Progress}" />
-                                    <Button
-                                        Click="RetryUploadButton_Click"
-                                        Content="{Binding Source={StaticResource Text}, Path=ActionRetryUpload}"
-                                        Tag="{x:Bind Id}" />
-                                </StackPanel>
-                            </Grid>
-                            </Border>
-                        </DataTemplate>
-                    </ListView.ItemTemplate>
-                </ListView>
-                <Border
-                    Grid.Row="1"
-                    Padding="22"
-                    HorizontalAlignment="Stretch"
-                    VerticalAlignment="Top"
-                    Background="{ThemeResource EasyShareSurfaceBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1"
-                    CornerRadius="{StaticResource EasyShareInnerCornerRadius}"
-                    Visibility="{Binding EmptySyncVisibility}">
-                    <StackPanel Spacing="8">
-                        <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=EmptySyncTitle}" />
-                        <TextBlock
-                            Text="{Binding Source={StaticResource Text}, Path=EmptySyncMessage}"
-                            TextWrapping="Wrap" />
-                    </StackPanel>
-                </Border>
-            </Grid>
+            <controls:OperationsCenterControl x:Name="OperationsCenter" Visibility="Collapsed" />
 
             <Grid x:Name="BrowserView" RowSpacing="12" Visibility="Collapsed">
                 <Grid.RowDefinitions>
@@ -561,7 +517,7 @@
                         Grid.Column="1"
                         Grid.RowSpan="2"
                         Spacing="10">
-                        <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="Perguntas frequentes" />
+                        <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=HelpFaqTitle}" />
                         <Expander Header="{Binding Source={StaticResource Text}, Path=HelpQuestionAccessMode}">
                             <TextBlock Padding="16,4,16,16" Text="{Binding Source={StaticResource Text}, Path=HelpAnswerAccessMode}" TextWrapping="Wrap" />
                         </Expander>
@@ -646,7 +602,7 @@
                                         TextWrapping="Wrap" />
                                     <TextBlock
                                         Style="{ThemeResource CaptionTextBlockStyle}"
-                                        Text="EasyShare · acesso simples às suas pastas de trabalho"
+                                        Text="{Binding Source={StaticResource Text}, Path=AboutTagline}"
                                         TextWrapping="Wrap" />
                                 </StackPanel>
                             </Grid>
@@ -661,7 +617,7 @@
                             BorderThickness="1"
                             CornerRadius="{StaticResource EasyShareCardCornerRadius}">
                             <StackPanel Spacing="14">
-                                <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="Informações do produto" />
+                                <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=AboutProductInfoTitle}" />
                                 <Grid ColumnSpacing="16" RowSpacing="12">
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto" />
@@ -690,6 +646,10 @@
                             CornerRadius="{StaticResource EasyShareCardCornerRadius}">
                             <StackPanel Spacing="10">
                                 <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=AboutUpdatesTitle}" />
+                                <TextBlock
+                                    Style="{ThemeResource CaptionTextBlockStyle}"
+                                    Text="{Binding UpdateChannelText}"
+                                    TextWrapping="Wrap" />
                                 <InfoBar
                                     IsClosable="False"
                                     IsOpen="True"
@@ -752,7 +712,7 @@
                                     <AppBarButton
                                         Click="DownloadUpdateButton_Click"
                                         IsEnabled="{Binding CanDownloadUpdate}"
-                                        Label="{Binding Source={StaticResource Text}, Path=ActionDownloadUpdate}"
+                                        Label="{Binding UpdatePrimaryActionLabel}"
                                         Visibility="{Binding DownloadUpdateButtonVisibility}">
                                         <AppBarButton.Icon>
                                             <SymbolIcon Symbol="Download" />
@@ -769,9 +729,9 @@
                                     </AppBarButton>
                                     <AppBarButton
                                         Click="OpenUpdateReleaseButton_Click"
-                                        IsEnabled="{Binding CanDownloadUpdate}"
+                                        IsEnabled="{Binding CanOpenUpdateRelease}"
                                         Label="{Binding Source={StaticResource Text}, Path=ActionOpenRelease}"
-                                        Visibility="{Binding DownloadUpdateButtonVisibility}">
+                                        Visibility="{Binding OpenUpdateReleaseButtonVisibility}">
                                         <AppBarButton.Icon>
                                             <SymbolIcon Symbol="Link" />
                                         </AppBarButton.Icon>
@@ -804,16 +764,16 @@
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <StackPanel x:Name="AboutFooterAccess" Spacing="4">
-                                    <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="Acesso centralizado" />
-                                    <TextBlock Text="Suas pastas ficam organizadas em um único lugar." TextWrapping="Wrap" />
+                                    <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=AboutFeatureCentralizedTitle}" />
+                                    <TextBlock Text="{Binding Source={StaticResource Text}, Path=AboutFeatureCentralizedMessage}" TextWrapping="Wrap" />
                                 </StackPanel>
                                 <StackPanel x:Name="AboutFooterSession" Grid.Column="1" Spacing="4">
-                                    <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="Sessão integrada" />
-                                    <TextBlock Text="Entre pelo fluxo mais simples para o seu ambiente." TextWrapping="Wrap" />
+                                    <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=AboutFeatureSessionTitle}" />
+                                    <TextBlock Text="{Binding Source={StaticResource Text}, Path=AboutFeatureSessionMessage}" TextWrapping="Wrap" />
                                 </StackPanel>
                                 <StackPanel x:Name="AboutFooterUpdates" Grid.Column="2" Spacing="4">
-                                    <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="Sempre atualizado" />
-                                    <TextBlock Text="Consulte novas versões diretamente pelo aplicativo." TextWrapping="Wrap" />
+                                    <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=AboutFeatureUpdatesTitle}" />
+                                    <TextBlock Text="{Binding Source={StaticResource Text}, Path=AboutFeatureUpdatesMessage}" TextWrapping="Wrap" />
                                 </StackPanel>
                             </Grid>
                         </Border>
@@ -838,6 +798,8 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
@@ -854,6 +816,13 @@
                         CornerRadius="{StaticResource EasyShareCardCornerRadius}">
                         <StackPanel Spacing="12">
                             <TextBlock Style="{ThemeResource TitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=SettingsTitle}" />
+                            <InfoBar
+                                IsClosable="False"
+                                IsOpen="True"
+                                Message="{Binding Source={StaticResource Text}, Path=SettingsManagedMessage}"
+                                Severity="Informational"
+                                Title="{Binding Source={StaticResource Text}, Path=SettingsManagedTitle}"
+                                Visibility="{Binding EnterpriseManagedVisibility}" />
                             <InfoBar
                                 IsClosable="False"
                                 IsOpen="True"
@@ -877,10 +846,9 @@
                                 </Grid.ColumnDefinitions>
                                 <ComboBox
                                     Header="{Binding Source={StaticResource Text}, Path=SettingsAccessModeHeader}"
-                                    SelectedIndex="{Binding AuthenticationModeIndex, Mode=TwoWay}">
-                                    <ComboBoxItem Content="{Binding Source={StaticResource Text}, Path=SettingsAccessModeBrowser}" />
-                                    <ComboBoxItem Content="{Binding Source={StaticResource Text}, Path=SettingsAccessModeGraph}" />
-                                </ComboBox>
+                                    IsEnabled="{Binding CanEditAccessSettings}"
+                                    ItemsSource="{Binding AuthenticationModeOptions}"
+                                    SelectedIndex="{Binding AuthenticationModeIndex, Mode=TwoWay}" />
                                 <TextBlock
                                     x:Name="SettingsAccessModeHelp"
                                     Grid.Column="1"
@@ -892,7 +860,7 @@
                                     x:Name="SettingsClientId"
                                     Grid.Row="1"
                                     Header="{Binding Source={StaticResource Text}, Path=SettingsClientIdHeader}"
-                                    IsEnabled="{Binding IsGraphAuthMode}"
+                                    IsEnabled="{Binding CanEditGraphSettings}"
                                     PlaceholderText="{Binding Source={StaticResource Text}, Path=SettingsClientIdPlaceholder}"
                                     Text="{Binding ClientId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                                 <TextBox
@@ -900,7 +868,7 @@
                                     Grid.Row="1"
                                     Grid.Column="1"
                                     Header="{Binding Source={StaticResource Text}, Path=SettingsTenantHeader}"
-                                    IsEnabled="{Binding IsGraphAuthMode}"
+                                    IsEnabled="{Binding CanEditGraphSettings}"
                                     PlaceholderText="{Binding Source={StaticResource Text}, Path=SettingsTenantPlaceholder}"
                                     Text="{Binding TenantId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                                 <TextBlock
@@ -923,7 +891,7 @@
                         BorderThickness="1"
                         CornerRadius="{StaticResource EasyShareCardCornerRadius}">
                         <StackPanel Spacing="12">
-                            <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="Unidade e inicialização" />
+                            <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=SettingsDriveStartupTitle}" />
                             <InfoBar
                                 IsClosable="False"
                                 IsOpen="True"
@@ -932,15 +900,25 @@
                                 Title="{Binding VirtualDriveState}" />
                             <ToggleSwitch
                                 Header="{Binding Source={StaticResource Text}, Path=SettingsStartWithWindows}"
-                                IsOn="{Binding StartWithWindows, Mode=TwoWay}" />
+                                IsEnabled="{Binding CanEditDriveSettings}"
+                                IsOn="{Binding StartWithWindows, Mode=TwoWay}"
+                                OffContent="{Binding Source={StaticResource Text}, Path=CommonOff}"
+                                OnContent="{Binding Source={StaticResource Text}, Path=CommonOn}" />
                             <ToggleSwitch
                                 Header="{Binding Source={StaticResource Text}, Path=SettingsStartMinimized}"
-                                IsOn="{Binding StartMinimized, Mode=TwoWay}" />
+                                IsEnabled="{Binding CanEditDriveSettings}"
+                                IsOn="{Binding StartMinimized, Mode=TwoWay}"
+                                OffContent="{Binding Source={StaticResource Text}, Path=CommonOff}"
+                                OnContent="{Binding Source={StaticResource Text}, Path=CommonOn}" />
                             <ToggleSwitch
                                 Header="{Binding Source={StaticResource Text}, Path=SettingsAutoDrive}"
-                                IsOn="{Binding AutoStartVirtualDrive, Mode=TwoWay}" />
+                                IsEnabled="{Binding CanEditDriveSettings}"
+                                IsOn="{Binding AutoStartVirtualDrive, Mode=TwoWay}"
+                                OffContent="{Binding Source={StaticResource Text}, Path=CommonOff}"
+                                OnContent="{Binding Source={StaticResource Text}, Path=CommonOn}" />
                             <TextBox
                                 Header="{Binding Source={StaticResource Text}, Path=SettingsMountPoint}"
+                                IsEnabled="{Binding CanEditDriveSettings}"
                                 PlaceholderText="{Binding Source={StaticResource Text}, Path=SettingsMountPointPlaceholder}"
                                 Text="{Binding MountPoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                         </StackPanel>
@@ -956,14 +934,16 @@
                         BorderThickness="1"
                         CornerRadius="{StaticResource EasyShareCardCornerRadius}">
                         <StackPanel Spacing="12">
-                            <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="Sessão e cache" />
+                            <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=SettingsSessionCacheTitle}" />
                             <TextBox
                                 Header="{Binding Source={StaticResource Text}, Path=SettingsBrowserStartUrl}"
                                 PlaceholderText="{Binding Source={StaticResource Text}, Path=SettingsBrowserStartUrlPlaceholder}"
                                 Text="{Binding BrowserSessionStartUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                             <ToggleSwitch
                                 Header="{Binding Source={StaticResource Text}, Path=SettingsKeepLogin}"
-                                IsOn="{Binding BrowserKeepSessionAlive, Mode=TwoWay}" />
+                                IsOn="{Binding BrowserKeepSessionAlive, Mode=TwoWay}"
+                                OffContent="{Binding Source={StaticResource Text}, Path=CommonOff}"
+                                OnContent="{Binding Source={StaticResource Text}, Path=CommonOn}" />
                             <NumberBox
                                 Header="{Binding Source={StaticResource Text}, Path=SettingsKeepLoginInterval}"
                                 Minimum="5"
@@ -973,6 +953,7 @@
                                 Value="{Binding BrowserKeepAliveMinutes, Mode=TwoWay}" />
                             <NumberBox
                                 Header="{Binding Source={StaticResource Text}, Path=SettingsCacheMinutes}"
+                                IsEnabled="{Binding CanEditCacheSettings}"
                                 Minimum="1"
                                 Maximum="1440"
                                 SmallChange="1"
@@ -989,9 +970,173 @@
                         </StackPanel>
                     </Border>
 
+                    <Border
+                        x:Name="SettingsPersonalizationCard"
+                        Grid.Row="2"
+                        Grid.ColumnSpan="2"
+                        Padding="20"
+                        Background="{ThemeResource EasyShareSurfaceBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="{StaticResource EasyShareCardCornerRadius}">
+                        <StackPanel Spacing="12">
+                            <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=SettingsPersonalizationTitle}" />
+                            <TextBlock
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Text="{Binding Source={StaticResource Text}, Path=SettingsPersonalizationHelp}"
+                                TextWrapping="Wrap" />
+                            <StackPanel MaxWidth="520" HorizontalAlignment="Stretch" Spacing="6">
+                                <ComboBox
+                                    x:Name="SettingsLanguageComboBox"
+                                    AutomationProperties.HelpText="{Binding Source={StaticResource Text}, Path=SettingsLanguageHelp}"
+                                    Header="{Binding Source={StaticResource Text}, Path=SettingsLanguageHeader}"
+                                    HorizontalAlignment="Stretch"
+                                    ItemsSource="{Binding LanguageOptions}"
+                                    SelectionChanged="SettingsLanguageComboBox_SelectionChanged"
+                                    SelectedIndex="{Binding LanguageIndex, Mode=TwoWay}" />
+                                <TextBlock
+                                    Style="{ThemeResource CaptionTextBlockStyle}"
+                                    Text="{Binding Source={StaticResource Text}, Path=SettingsLanguageHelp}"
+                                    TextWrapping="Wrap" />
+                            </StackPanel>
+                            <Grid
+                                HorizontalAlignment="Center"
+                                MaxWidth="1080"
+                                x:Name="SettingsPersonalizationLayout"
+                                RowSpacing="24">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <Grid
+                                    x:Name="SettingsPersonalizationOptionsGrid"
+                                    ColumnSpacing="24"
+                                    Grid.Row="0"
+                                    RowSpacing="12">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="0" />
+                                    </Grid.RowDefinitions>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <ComboBox
+                                        Header="{Binding Source={StaticResource Text}, Path=SettingsThemeHeader}"
+                                        ItemsSource="{Binding ThemeModeOptions}"
+                                        SelectedIndex="{Binding ThemeModeIndex, Mode=TwoWay}" />
+                                    <ToggleSwitch
+                                        x:Name="SettingsHighContrastToggle"
+                                        Grid.Column="1"
+                                        AutomationProperties.HelpText="{Binding Source={StaticResource Text}, Path=SettingsHighContrastHelp}"
+                                        Header="{Binding Source={StaticResource Text}, Path=SettingsHighContrast}"
+                                        IsOn="{Binding HighContrastEnabled, Mode=TwoWay}"
+                                        OffContent="{Binding Source={StaticResource Text}, Path=CommonOff}"
+                                        OnContent="{Binding Source={StaticResource Text}, Path=CommonOn}" />
+                                </Grid>
+
+                                <StackPanel
+                                    x:Name="SettingsPersonalizationColorPanel"
+                                    Grid.Row="1"
+                                    HorizontalAlignment="Stretch"
+                                    Spacing="6">
+                                    <TextBlock
+                                        HorizontalAlignment="Center"
+                                        Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                        Text="{Binding Source={StaticResource Text}, Path=SettingsAccentColorHeader}"
+                                        TextAlignment="Center" />
+                                    <TextBlock
+                                        HorizontalAlignment="Center"
+                                        Style="{ThemeResource CaptionTextBlockStyle}"
+                                        Text="{Binding Source={StaticResource Text}, Path=SettingsAccentColorHelp}"
+                                        TextAlignment="Center"
+                                        TextWrapping="Wrap" />
+                                    <ColorPicker
+                                        HorizontalAlignment="Center"
+                                        AutomationProperties.HelpText="{Binding Source={StaticResource Text}, Path=SettingsAccentColorHelp}"
+                                        Color="{Binding AccentColorValue, Mode=TwoWay}"
+                                        IsAlphaEnabled="False" />
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <Border
+                        x:Name="SettingsNotificationsCard"
+                        Grid.Row="3"
+                        Grid.ColumnSpan="2"
+                        Padding="20"
+                        Background="{ThemeResource EasyShareSurfaceBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="{StaticResource EasyShareCardCornerRadius}">
+                        <StackPanel Spacing="12">
+                            <TextBlock
+                                Style="{ThemeResource SubtitleTextBlockStyle}"
+                                Text="{Binding Source={StaticResource Text}, Path=SettingsNotificationsOfflineTitle}" />
+                            <TextBlock
+                                Style="{ThemeResource CaptionTextBlockStyle}"
+                                Text="{Binding Source={StaticResource Text}, Path=SettingsNotificationsHelp}"
+                                TextWrapping="Wrap" />
+                            <Grid x:Name="SettingsNotificationsGrid" ColumnSpacing="32" RowSpacing="16">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="0" />
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel x:Name="SettingsNotificationsPanel" Spacing="8">
+                                    <ToggleSwitch
+                                        Header="{Binding Source={StaticResource Text}, Path=SettingsNotificationsEnabled}"
+                                        IsOn="{Binding NotificationsEnabled, Mode=TwoWay}"
+                                        OffContent="{Binding Source={StaticResource Text}, Path=CommonOff}"
+                                        OnContent="{Binding Source={StaticResource Text}, Path=CommonOn}" />
+                                    <ContentControl IsEnabled="{Binding NotificationsEnabled}">
+                                        <StackPanel Spacing="6">
+                                            <CheckBox Content="{Binding Source={StaticResource Text}, Path=SettingsNotifyUploadCompleted}" IsChecked="{Binding NotifyUploadCompleted, Mode=TwoWay}" />
+                                            <CheckBox Content="{Binding Source={StaticResource Text}, Path=SettingsNotifyUploadFailed}" IsChecked="{Binding NotifyUploadFailed, Mode=TwoWay}" />
+                                            <CheckBox Content="{Binding Source={StaticResource Text}, Path=SettingsNotifyConflict}" IsChecked="{Binding NotifyConflict, Mode=TwoWay}" />
+                                            <CheckBox Content="{Binding Source={StaticResource Text}, Path=SettingsNotifySessionExpired}" IsChecked="{Binding NotifySessionExpired, Mode=TwoWay}" />
+                                            <CheckBox Content="{Binding Source={StaticResource Text}, Path=SettingsNotifyDriveDisconnected}" IsChecked="{Binding NotifyDriveDisconnected, Mode=TwoWay}" />
+                                            <CheckBox Content="{Binding Source={StaticResource Text}, Path=SettingsNotifyUpdateReady}" IsChecked="{Binding NotifyUpdateReady, Mode=TwoWay}" />
+                                        </StackPanel>
+                                    </ContentControl>
+                                    <ToggleSwitch
+                                        Header="{Binding Source={StaticResource Text}, Path=SettingsQuietMode}"
+                                        IsOn="{Binding QuietModeEnabled, Mode=TwoWay}"
+                                        OffContent="{Binding Source={StaticResource Text}, Path=CommonOff}"
+                                        OnContent="{Binding Source={StaticResource Text}, Path=CommonOn}" />
+                                </StackPanel>
+                                <StackPanel x:Name="SettingsOfflinePanel" Grid.Column="1" Spacing="8">
+                                    <NumberBox
+                                        Header="{Binding Source={StaticResource Text}, Path=SettingsOfflineCacheLimit}"
+                                        IsEnabled="{Binding CanEditCacheSettings}"
+                                        Minimum="128"
+                                        Maximum="102400"
+                                        SmallChange="128"
+                                        SpinButtonPlacementMode="Inline"
+                                        Value="{Binding OfflineCacheLimitMb, Mode=TwoWay}" />
+                                    <ToggleSwitch
+                                        Header="{Binding Source={StaticResource Text}, Path=SettingsOfflinePauseMetered}"
+                                        IsOn="{Binding OfflinePauseOnMeteredNetwork, Mode=TwoWay}"
+                                        OffContent="{Binding Source={StaticResource Text}, Path=CommonOff}"
+                                        OnContent="{Binding Source={StaticResource Text}, Path=CommonOn}" />
+                                    <ToggleSwitch
+                                        Header="{Binding Source={StaticResource Text}, Path=SettingsOfflinePauseBattery}"
+                                        IsOn="{Binding OfflinePauseOnBattery, Mode=TwoWay}"
+                                        OffContent="{Binding Source={StaticResource Text}, Path=CommonOff}"
+                                        OnContent="{Binding Source={StaticResource Text}, Path=CommonOn}" />
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
                     <StackPanel
                         x:Name="SettingsActionsPanel"
-                        Grid.Row="2"
+                        Grid.Row="4"
                         Grid.ColumnSpan="2"
                         Spacing="12">
                         <CommandBar
@@ -1000,6 +1145,14 @@
                             <AppBarButton Click="SaveSettingsButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionSaveSettings}">
                                 <AppBarButton.Icon>
                                     <SymbolIcon Symbol="Save" />
+                                </AppBarButton.Icon>
+                            </AppBarButton>
+                            <AppBarButton
+                                AutomationProperties.HelpText="{Binding Source={StaticResource Text}, Path=SettingsRunWizardHelp}"
+                                Click="RunSetupWizardButton_Click"
+                                Label="{Binding Source={StaticResource Text}, Path=SettingsRunWizard}">
+                                <AppBarButton.Icon>
+                                    <SymbolIcon Symbol="Setting" />
                                 </AppBarButton.Icon>
                             </AppBarButton>
                             <AppBarButton Click="OpenBrowserSessionButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionOpenLogin}">
@@ -1015,7 +1168,7 @@
                                     <SymbolIcon Symbol="OpenFile" />
                                 </AppBarButton.Icon>
                             </AppBarButton>
-                            <AppBarButton Click="SignInButton_Click" Label="{Binding Source={StaticResource Text}, Path=ActionSignIn}">
+                            <AppBarButton Click="SignInButton_Click" IsEnabled="{Binding IsInteractiveSignInAllowed}" Label="{Binding Source={StaticResource Text}, Path=ActionSignIn}">
                                 <AppBarButton.Icon>
                                     <SymbolIcon Symbol="Contact" />
                                 </AppBarButton.Icon>
@@ -1102,4 +1255,9 @@
             </Grid>
         </Grid>
     </NavigationView>
+        <controls:SetupWizardControl
+            x:Name="SetupWizard"
+            Canvas.ZIndex="1000"
+            Visibility="Collapsed" />
+    </Grid>
 </Page>

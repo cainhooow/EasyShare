@@ -1,10 +1,25 @@
 ﻿namespace EasyShare.Resources;
 
-public sealed class TextProvider
+public sealed class TextProvider : System.ComponentModel.INotifyPropertyChanged
 {
+    public TextProvider()
+    {
+        AppText.LanguageChanged += OnLanguageChanged;
+    }
+
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+
     public string AboutDeveloperLabel => AppText.Get("AboutDeveloperLabel");
     public string AboutDeveloperName => AppText.Get("AboutDeveloperName");
+    public string AboutFeatureCentralizedMessage => AppText.Get("AboutFeatureCentralizedMessage");
+    public string AboutFeatureCentralizedTitle => AppText.Get("AboutFeatureCentralizedTitle");
+    public string AboutFeatureSessionMessage => AppText.Get("AboutFeatureSessionMessage");
+    public string AboutFeatureSessionTitle => AppText.Get("AboutFeatureSessionTitle");
+    public string AboutFeatureUpdatesMessage => AppText.Get("AboutFeatureUpdatesMessage");
+    public string AboutFeatureUpdatesTitle => AppText.Get("AboutFeatureUpdatesTitle");
     public string AboutIntro => AppText.Get("AboutIntro");
+    public string AboutProductInfoTitle => AppText.Get("AboutProductInfoTitle");
+    public string AboutTagline => AppText.Get("AboutTagline");
     public string AboutTitle => AppText.Get("AboutTitle");
     public string AboutUpdatesTitle => AppText.Get("AboutUpdatesTitle");
     public string AboutVersionLabel => AppText.Get("AboutVersionLabel");
@@ -23,6 +38,12 @@ public sealed class TextProvider
     public string ActionForward => AppText.Get("ActionForward");
     public string ActionGo => AppText.Get("ActionGo");
     public string ActionOpenDrive => AppText.Get("ActionOpenDrive");
+    public string ActionExportSupport => AppText.Get("ActionExportSupport");
+    public string ActionFreeSpace => AppText.Get("ActionFreeSpace");
+    public string ActionKeepOffline => AppText.Get("ActionKeepOffline");
+    public string ActionReplaceRemote => AppText.Get("ActionReplaceRemote");
+    public string ActionSaveLocalCopy => AppText.Get("ActionSaveLocalCopy");
+    public string ActionUseRemoteVersion => AppText.Get("ActionUseRemoteVersion");
     public string ActionOpenRelease => AppText.Get("ActionOpenRelease");
     public string ActionOpenLogin => AppText.Get("ActionOpenLogin");
     public string ActionInstallUpdate => AppText.Get("ActionInstallUpdate");
@@ -77,6 +98,8 @@ public sealed class TextProvider
     public string CommonContinue => AppText.Get("CommonContinue");
     public string CommonNotNow => AppText.Get("CommonNotNow");
     public string CommonOk => AppText.Get("CommonOk");
+    public string CommonOff => AppText.Get("CommonOff");
+    public string CommonOn => AppText.Get("CommonOn");
     public string CommonSave => AppText.Get("CommonSave");
     public string DriveRouteLastCheckedFormat => AppText.Get("DriveRouteLastCheckedFormat");
     public string DriveRouteUntested => AppText.Get("DriveRouteUntested");
@@ -98,6 +121,7 @@ public sealed class TextProvider
     public string HelpAnswerReset => AppText.Get("HelpAnswerReset");
     public string HelpAnswerTray => AppText.Get("HelpAnswerTray");
     public string HelpIntro => AppText.Get("HelpIntro");
+    public string HelpFaqTitle => AppText.Get("HelpFaqTitle");
     public string HelpQuestionAccessMode => AppText.Get("HelpQuestionAccessMode");
     public string HelpQuestionDriveMissing => AppText.Get("HelpQuestionDriveMissing");
     public string HelpQuestionEditFolder => AppText.Get("HelpQuestionEditFolder");
@@ -141,10 +165,16 @@ public sealed class TextProvider
     public string MissingRouteNameTitle => AppText.Get("MissingRouteNameTitle");
     public string NavAbout => AppText.Get("NavAbout");
     public string NavBrowser => AppText.Get("NavBrowser");
+    public string NavExplorer => AppText.Get("NavExplorer");
     public string NavHelp => AppText.Get("NavHelp");
     public string NavHome => AppText.Get("NavHome");
     public string NavRoutes => AppText.Get("NavRoutes");
     public string NavSettings => AppText.Get("NavSettings");
+    public string OfflineChooseRoute => AppText.Get("OfflineChooseRoute");
+    public string OperationsConflictsTab => AppText.Get("OperationsConflictsTab");
+    public string OperationsHealthTab => AppText.Get("OperationsHealthTab");
+    public string OperationsOfflineTab => AppText.Get("OperationsOfflineTab");
+    public string OperationsTransfersTab => AppText.Get("OperationsTransfersTab");
     public string NavSync => AppText.Get("NavSync");
     public string PinNoFolderMessage => AppText.Get("PinNoFolderMessage");
     public string PinNoFolderTitle => AppText.Get("PinNoFolderTitle");
@@ -189,18 +219,51 @@ public sealed class TextProvider
     public string SettingsClientIdHelp => AppText.Get("SettingsClientIdHelp");
     public string SettingsClientIdPlaceholder => AppText.Get("SettingsClientIdPlaceholder");
     public string SettingsDatabase => AppText.Get("SettingsDatabase");
+    public string SettingsDriveStartupTitle => AppText.Get("SettingsDriveStartupTitle");
     public string SettingsDefaultMessage => AppText.Get("SettingsDefaultMessage");
     public string SettingsGraphReady => AppText.Get("SettingsGraphReady");
     public string SettingsKeepLogin => AppText.Get("SettingsKeepLogin");
     public string SettingsKeepLoginInterval => AppText.Get("SettingsKeepLoginInterval");
+    public string SettingsLanguageEnglish => AppText.Get("SettingsLanguageEnglish");
+    public string SettingsLanguageHeader => AppText.Get("SettingsLanguageHeader");
+    public string SettingsLanguageHelp => AppText.Get("SettingsLanguageHelp");
+    public string SettingsLanguagePortuguese => AppText.Get("SettingsLanguagePortuguese");
     public string SettingsLoginActive => AppText.Get("SettingsLoginActive");
     public string SettingsLoginRemoved => AppText.Get("SettingsLoginRemoved");
     public string SettingsMissingClientId => AppText.Get("SettingsMissingClientId");
     public string SettingsMountPoint => AppText.Get("SettingsMountPoint");
     public string SettingsMountPointPlaceholder => AppText.Get("SettingsMountPointPlaceholder");
+    public string SettingsNotificationsOfflineTitle => AppText.Get("SettingsNotificationsOfflineTitle");
+    public string SettingsNotificationsHelp => AppText.Get("SettingsNotificationsHelp");
+    public string SettingsNotificationsEnabled => AppText.Get("SettingsNotificationsEnabled");
+    public string SettingsNotifyUploadCompleted => AppText.Get("SettingsNotifyUploadCompleted");
+    public string SettingsNotifyUploadFailed => AppText.Get("SettingsNotifyUploadFailed");
+    public string SettingsNotifyConflict => AppText.Get("SettingsNotifyConflict");
+    public string SettingsNotifySessionExpired => AppText.Get("SettingsNotifySessionExpired");
+    public string SettingsNotifyDriveDisconnected => AppText.Get("SettingsNotifyDriveDisconnected");
+    public string SettingsNotifyUpdateReady => AppText.Get("SettingsNotifyUpdateReady");
+    public string SettingsQuietMode => AppText.Get("SettingsQuietMode");
+    public string SettingsOfflineCacheLimit => AppText.Get("SettingsOfflineCacheLimit");
+    public string SettingsOfflinePauseMetered => AppText.Get("SettingsOfflinePauseMetered");
+    public string SettingsOfflinePauseBattery => AppText.Get("SettingsOfflinePauseBattery");
+    public string SettingsManagedTitle => AppText.Get("SettingsManagedTitle");
+    public string SettingsManagedMessage => AppText.Get("SettingsManagedMessage");
+    public string SettingsPersonalizationTitle => AppText.Get("SettingsPersonalizationTitle");
+    public string SettingsPersonalizationHelp => AppText.Get("SettingsPersonalizationHelp");
+    public string SettingsThemeHeader => AppText.Get("SettingsThemeHeader");
+    public string SettingsThemeSystem => AppText.Get("SettingsThemeSystem");
+    public string SettingsThemeLight => AppText.Get("SettingsThemeLight");
+    public string SettingsThemeDark => AppText.Get("SettingsThemeDark");
+    public string SettingsAccentColorHeader => AppText.Get("SettingsAccentColorHeader");
+    public string SettingsAccentColorHelp => AppText.Get("SettingsAccentColorHelp");
+    public string SettingsHighContrast => AppText.Get("SettingsHighContrast");
+    public string SettingsHighContrastHelp => AppText.Get("SettingsHighContrastHelp");
     public string SettingsResetHelp => AppText.Get("SettingsResetHelp");
+    public string SettingsRunWizard => AppText.Get("SettingsRunWizard");
+    public string SettingsRunWizardHelp => AppText.Get("SettingsRunWizardHelp");
     public string SettingsSavedMessage => AppText.Get("SettingsSavedMessage");
     public string SettingsSavedTitle => AppText.Get("SettingsSavedTitle");
+    public string SettingsSessionCacheTitle => AppText.Get("SettingsSessionCacheTitle");
     public string SettingsStartMinimized => AppText.Get("SettingsStartMinimized");
     public string SettingsStartWithWindows => AppText.Get("SettingsStartWithWindows");
     public string SettingsStatusTitle => AppText.Get("SettingsStatusTitle");
@@ -261,4 +324,13 @@ public sealed class TextProvider
     public string WizardKeepConnectedMessage => AppText.Get("WizardKeepConnectedMessage");
     public string WizardLoginOpenedMessage => AppText.Get("WizardLoginOpenedMessage");
     public string WizardLoginOpenedTitle => AppText.Get("WizardLoginOpenedTitle");
+    private void OnLanguageChanged(object? sender, EventArgs e)
+    {
+        foreach (var property in GetType().GetProperties())
+        {
+            PropertyChanged?.Invoke(
+                this,
+                new System.ComponentModel.PropertyChangedEventArgs(property.Name));
+        }
+    }
 }

@@ -1,0 +1,81 @@
+name: Windows CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: x64 tests and repository gates
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install .NET 10 SDK
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Audit direct and transitive NuGet packages
+        shell: pwsh
+        run: pwsh -NoProfile -File .github/scripts/Invoke-CI.ps1 -Target Audit
+
+      - name: Manifest, localization, integrity, and HTTP security gates
+        shell: pwsh
+        run: pwsh -NoProfile -File .github/scripts/Invoke-CI.ps1 -Target Gates
+
+      - name: Run complete x64 test suite
+        shell: pwsh
+        run: pwsh -NoProfile -File .github/scripts/Invoke-CI.ps1 -Target Test
+
+  package-check:
+    name: ${{ matrix.architecture }} compile and MSIX check
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture:
+          - x86
+          - ARM64
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install .NET 10 SDK
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Compile and create unsigned package
+        shell: pwsh
+        env:
+          EASYSHARE_UPDATE_PUBLISHER_SUBJECTS: ${{ secrets.EASYSHARE_UPDATE_PUBLISHER_SUBJECTS }}
+          EASYSHARE_UPDATE_PUBLISHER_THUMBPRINTS: ${{ secrets.EASYSHARE_UPDATE_PUBLISHER_THUMBPRINTS }}
+        run: pwsh -NoProfile -File .github/scripts/Invoke-CI.ps1 -Target Package -Architecture '${{ matrix.architecture }}'
+
+      - name: Upload package-check output
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: EasyShare-${{ matrix.architecture }}-package-check
+          path: dist-test/ci/${{ matrix.architecture }}/**
+          if-no-files-found: error
+          retention-days: 7

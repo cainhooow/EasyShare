@@ -13,6 +13,9 @@
     <EnableMsixTooling>true</EnableMsixTooling>
     <GitHubRepositoryOwner Condition="'$(GitHubRepositoryOwner)' == ''">cainhooow</GitHubRepositoryOwner>
     <GitHubRepositoryName Condition="'$(GitHubRepositoryName)' == ''">EasyShare</GitHubRepositoryName>
+    <!-- Configure one or both at build time. Empty values intentionally block GitHub installer launch. -->
+    <EasyShareUpdatePublisherSubjects Condition="'$(EasyShareUpdatePublisherSubjects)' == ''"></EasyShareUpdatePublisherSubjects>
+    <EasyShareUpdatePublisherThumbprints Condition="'$(EasyShareUpdatePublisherThumbprints)' == ''"></EasyShareUpdatePublisherThumbprints>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
@@ -26,7 +29,19 @@
       <_Parameter1>GitHubRepositoryName</_Parameter1>
       <_Parameter2>$(GitHubRepositoryName)</_Parameter2>
     </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>UpdatePublisherSubjects</_Parameter1>
+      <_Parameter2>$(EasyShareUpdatePublisherSubjects)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>UpdatePublisherThumbprints</_Parameter1>
+      <_Parameter2>$(EasyShareUpdatePublisherThumbprints)</_Parameter2>
+    </AssemblyAttribute>
     <EmbeddedResource Include="Resources\AppStrings.xml" />
+    <EmbeddedResource Include="Resources\AppStrings.en-US.xml">
+      <WithCulture>false</WithCulture>
+      <LogicalName>EasyShare.Resources.AppStrings.en-US.xml</LogicalName>
+    </EmbeddedResource>
     <Content Include="Assets\LogoIcon.png" />
     <Content Include="Assets\LogoText.png" />
     <Content Include="Assets\SplashScreen.scale-200.png" />

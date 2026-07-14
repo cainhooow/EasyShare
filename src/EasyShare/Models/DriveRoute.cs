@@ -12,6 +12,23 @@ public sealed class DriveRoute
 
     public string RemotePath { get; set; } = "/";
 
+    public string SiteId { get; set; } = string.Empty;
+
+    public string DriveId { get; set; } = string.Empty;
+
+    public string RootItemId { get; set; } = string.Empty;
+
+    public string FolderWebUrl { get; set; } = string.Empty;
+
+    public bool HasGraphIdentity =>
+        !string.IsNullOrWhiteSpace(SiteId) &&
+        !string.IsNullOrWhiteSpace(DriveId) &&
+        !string.IsNullOrWhiteSpace(RootItemId);
+
+    public string LocationUrl => string.IsNullOrWhiteSpace(FolderWebUrl)
+        ? SharePointUrl
+        : FolderWebUrl;
+
     public bool IsConnected { get; set; }
 
     public string StatusText { get; set; } = AppText.Get("DriveRouteUntested");

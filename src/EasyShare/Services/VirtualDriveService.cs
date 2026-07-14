@@ -46,6 +46,8 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
         }
     }
 
+    public static bool IsWinFspAvailable() => IsWinFspInstalled();
+
     public void Dispose()
     {
         lock (_gate)

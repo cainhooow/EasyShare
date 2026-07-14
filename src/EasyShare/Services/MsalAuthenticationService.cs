@@ -11,7 +11,7 @@ public sealed class MsalAuthenticationService : IAuthenticationService
     [
         "User.Read",
         "Files.ReadWrite.All",
-        "Sites.ReadWrite.All",
+        "Sites.Read.All",
         "offline_access"
     ];
 

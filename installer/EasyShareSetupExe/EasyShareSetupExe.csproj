@@ -14,7 +14,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="..\..\dist\payload-exe\Install-EasyShare.ps1" LogicalName="Install-EasyShare.ps1" />
-    <EmbeddedResource Include="..\..\dist\payload-exe\EasyShare_1.0.0.22_x64.msix" LogicalName="EasyShare_1.0.0.22_x64.msix" />
+    <EmbeddedResource Include="..\..\dist\payload-exe\EasyShare_1.0.26.0_x64.msix" LogicalName="EasyShare_1.0.26.0_x64.msix" />
     <EmbeddedResource Include="..\..\dist\payload-exe\EasyShare_TestCertificate.cer" LogicalName="EasyShare_TestCertificate.cer" />
     <EmbeddedResource Include="..\..\dist\payload-exe\Microsoft.WindowsAppRuntime.2.msix" LogicalName="Microsoft.WindowsAppRuntime.2.msix" />
     <EmbeddedResource Include="..\..\dist\payload-exe\winfsp-2.1.25156.msi" LogicalName="winfsp-2.1.25156.msi" />
