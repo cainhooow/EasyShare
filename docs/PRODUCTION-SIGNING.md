@@ -12,15 +12,14 @@ $env:EASYSHARE_SIGNING_CERT_THUMBPRINT = "THUMBPRINT_DO_CERTIFICADO"
 $env:EASYSHARE_SIGNING_TIMESTAMP_URL = "https://SEU-TSR/timestamp"
 ```
 
-3. Gere os artefatos EXE, patch EXE, MSI e MSIX da mesma versão.
+3. Gere o instalador manual EXE, o patch EXE canônico e o MSIX da mesma versão.
 4. Assine e valide:
 
 ```powershell
 .\scripts\Sign-EasyShareArtifacts.ps1 `
   -MsixPath dist\payload-exe\EasyShare_1.0.0.22_x64.msix `
-  -ExePath dist\EasyShareSetup.exe `
+  -ExePath dist\EasyPointShareSetup.exe `
   -PatchExePath dist\EasySharePatch_from_1_0_0_21_to_1_0_0_22.exe `
-  -MsiPath dist\EasyShareSetup.msi `
   -RequireTrustedSignature
 ```
 
@@ -30,5 +29,5 @@ O script exige assinatura Authenticode válida em todos os artefatos e, com `-Re
 
 - Nunca inclua a chave privada no repositório, nos assets da release ou no instalador.
 - Use timestamp RFC 3161 para manter a assinatura válida após a expiração do certificado.
-- O pacote MSIX, o bootstrapper EXE, o patch EXE e o MSI devem usar a mesma cadeia confiável.
+- O pacote MSIX, o instalador manual EXE e o patch EXE devem usar a cadeia confiável definida para o canal correspondente.
 - O certificado de teste não deve ser importado em `Root`/`TrustedPeople` em uma instalação de produção.

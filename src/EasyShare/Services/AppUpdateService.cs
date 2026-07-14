@@ -204,8 +204,10 @@ public sealed class AppUpdateService : IDisposable
                     InfoBarSeverity.Success);
             }
 
-            var asset = SelectInstallerAsset(
+            var asset = GitHubPatchAssetPolicy.SelectCompatiblePatch(
                 release.Assets,
+                candidate => candidate.Name,
+                candidate => candidate.BrowserDownloadUrl,
                 currentVersion,
                 latestVersion,
                 HasCachedPackage(currentVersion));
@@ -253,7 +255,7 @@ public sealed class AppUpdateService : IDisposable
                 asset.Size,
                 downloadUrl,
                 expectedSha256,
-                IsIncrementalAsset(asset.Name));
+                IsIncremental: true);
 
             return new AppUpdateStatus(
                 AppText.Get("UpdateStatusAvailableTitle"),
@@ -461,6 +463,11 @@ public sealed class AppUpdateService : IDisposable
             throw new InvalidOperationException("Microsoft Store updates must be installed through StoreContext.");
         }
 
+        if (!IsCompatibleIncrementalUpdate(update))
+        {
+            throw new InvalidOperationException("GitHub updates require an exact incremental patch and its cached base package.");
+        }
+
         _paths.EnsureCreated();
         var updatesDirectory = GetUpdateDirectory(update);
         Directory.CreateDirectory(updatesDirectory);
@@ -497,7 +504,7 @@ public sealed class AppUpdateService : IDisposable
 
     public bool TryGetDownloadedUpdatePath(AppUpdateInfo update, out string downloadedPath)
     {
-        if (update.Channel != AppUpdateChannel.GitHubReleases)
+        if (update.Channel != AppUpdateChannel.GitHubReleases || !IsCompatibleIncrementalUpdate(update))
         {
             downloadedPath = string.Empty;
             return false;
@@ -511,6 +518,11 @@ public sealed class AppUpdateService : IDisposable
     {
         try
         {
+            if (!GitHubPatchAssetPolicy.IsPatchAsset(Path.GetFileName(installerPath)))
+            {
+                throw new InvalidOperationException("The GitHub updater can start only canonical incremental patch installers.");
+            }
+
             var trustedInstaller = _installerTrustGate.Prepare(installerPath);
             var fullPath = Path.GetFullPath(trustedInstaller.Path);
             _processStarter(new ProcessStartInfo
@@ -621,80 +633,12 @@ public sealed class AppUpdateService : IDisposable
             : $"{normalized[..12000].TrimEnd()}…";
     }
 
-    private static GitHubReleaseAssetResponse? SelectInstallerAsset(
-        IReadOnlyList<GitHubReleaseAssetResponse>? assets,
-        Version currentVersion,
-        Version latestVersion,
-        bool hasCachedPackage) =>
-        assets?
-            .Where(asset => !string.IsNullOrWhiteSpace(asset.BrowserDownloadUrl))
-            .Select(asset => new
-            {
-                Asset = asset,
-                Preference = AssetPreference(asset.Name, currentVersion, latestVersion, hasCachedPackage)
-            })
-            .Where(candidate => candidate.Preference < int.MaxValue)
-            .OrderBy(candidate => candidate.Preference)
-            .Select(candidate => candidate.Asset)
-            .FirstOrDefault();
-
-    private static int AssetPreference(
-        string? assetName,
-        Version currentVersion,
-        Version latestVersion,
-        bool hasCachedPackage)
+    private bool IsCompatibleIncrementalUpdate(AppUpdateInfo update)
     {
-        if (string.IsNullOrWhiteSpace(assetName))
-        {
-            return int.MaxValue;
-        }
-
-        var name = assetName.ToLowerInvariant();
-        if (hasCachedPackage && IsIncrementalAssetForVersion(name, currentVersion, latestVersion))
-        {
-            return 0;
-        }
-
-        if (name.Equals("easysharesetup.exe", StringComparison.OrdinalIgnoreCase))
-        {
-            return 10;
-        }
-
-        if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && name.Contains("easyshare", StringComparison.Ordinal))
-        {
-            return 11;
-        }
-
-        if (name.EndsWith(".msi", StringComparison.OrdinalIgnoreCase) && name.Contains("easyshare", StringComparison.Ordinal))
-        {
-            return 12;
-        }
-
-        if (name.EndsWith(".msix", StringComparison.OrdinalIgnoreCase) && name.Contains("easyshare", StringComparison.Ordinal))
-        {
-            return 13;
-        }
-
-        return int.MaxValue;
-    }
-
-    private static bool IsIncrementalAsset(string? assetName) =>
-        !string.IsNullOrWhiteSpace(assetName) &&
-        assetName.Contains("patch", StringComparison.OrdinalIgnoreCase);
-
-    private static bool IsIncrementalAssetForVersion(string assetName, Version currentVersion, Version latestVersion)
-    {
-        if (!IsIncrementalAsset(assetName))
-        {
-            return false;
-        }
-
-        var current = currentVersion.ToString(4);
-        var latest = latestVersion.ToString(4);
-        var normalized = assetName.Replace('.', '_')
-            .Replace('-', '_');
-        return normalized.Contains($"from_{current}", StringComparison.OrdinalIgnoreCase) &&
-               normalized.Contains($"to_{latest}", StringComparison.OrdinalIgnoreCase);
+        var currentVersion = ParseCurrentVersion();
+        return update.IsIncremental &&
+               GitHubPatchAssetPolicy.IsPatchAssetForVersion(update.AssetName, currentVersion, update.Version) &&
+               HasCachedPackage(currentVersion);
     }
 
     private bool HasCachedPackage(Version version) =>
@@ -763,7 +707,7 @@ public sealed class AppUpdateService : IDisposable
         var invalidCharacters = Path.GetInvalidFileNameChars();
         var sanitized = new string(fileName.Select(character =>
             invalidCharacters.Contains(character) ? '_' : character).ToArray());
-        return string.IsNullOrWhiteSpace(sanitized) ? "EasyShareSetup.exe" : sanitized;
+        return string.IsNullOrWhiteSpace(sanitized) ? "EasySharePatch.exe" : sanitized;
     }
 
     private static string ReadAssemblyMetadata(string key, string fallback)

@@ -2,7 +2,7 @@
 
 Todas as mudanças relevantes do EasyShare devem ser registradas neste arquivo antes da publicação de uma release.
 
-## [1.0.26.0] - 2026-07-13
+## [1.0.26.0] - 2026-07-14
 
 ### Assistente de configuração
 
@@ -22,6 +22,11 @@ Todas as mudanças relevantes do EasyShare devem ser registradas neste arquivo a
 - Persiste IDs estáveis de site, drive e item e usa o Graph também nas operações da unidade virtual, cache offline e fila de upload.
 - Filtra resultados pela política corporativa de hosts, confina caminhos à pasta fixada e preserva o último cache válido em falhas remotas.
 - Reduz o consentimento de site de `Sites.ReadWrite.All` para `Sites.Read.All`, mantendo escrita somente nos arquivos acessíveis ao usuário.
+
+### Atualizações incrementais
+
+- Torna o canal GitHub estritamente patch-only: o app seleciona apenas o asset canônico que liga exatamente a versão instalada à release mais recente e nunca baixa EXE, MSI ou MSIX completo como fallback.
+- Corrige a comparação das versões com underscores no nome do patch, exige o MSIX-base no cache e falha de forma segura diante de patch ausente, duplicado ou malformado.
 
 ## [1.0.25.0] - 2026-07-11
 

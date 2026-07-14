@@ -6,7 +6,7 @@
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
     <PublishTrimmed>false</PublishTrimmed>
-    <AssemblyName>EasyShareSetup</AssemblyName>
+    <AssemblyName>EasyPointShareSetup</AssemblyName>
     <RootNamespace>EasyShareSetup</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
