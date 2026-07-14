@@ -6,11 +6,15 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.Web.WebView2.Core;
 using Windows.System;
+using WinRT.Interop;
 
 namespace EasyShare;
 
 public sealed partial class MainPage
 {
+    private readonly HashSet<string> _approvedFederatedBrowserHosts = new(StringComparer.OrdinalIgnoreCase);
+    private bool _browserSecurityConfigured;
+
     private async void BrowserKeepAliveTimer_Tick(object? sender, object e)
     {
         if (!ViewModel.IsBrowserSessionMode || !ViewModel.BrowserKeepSessionAlive)
@@ -90,13 +94,17 @@ public sealed partial class MainPage
 
     private async void CheckUpdatesButton_Click(object sender, RoutedEventArgs e)
     {
-        await ViewModel.CheckForUpdatesAsync();
+        var status = await ViewModel.CheckForUpdatesAsync();
+        NotifyUpdateReady(status);
         ShowActionMessage(ViewModel.UpdateStatusTitle, ViewModel.UpdateStatusMessage, ViewModel.UpdateStatusSeverity);
     }
 
     private async void DownloadUpdateButton_Click(object sender, RoutedEventArgs e)
     {
-        await ViewModel.DownloadUpdateAsync();
+        var ownerWindow = App.MainWindow is null
+            ? IntPtr.Zero
+            : WindowNative.GetWindowHandle(App.MainWindow);
+        await ViewModel.DownloadUpdateAsync(ownerWindow);
         ShowActionMessage(ViewModel.UpdateStatusTitle, ViewModel.UpdateStatusMessage, ViewModel.UpdateStatusSeverity);
     }
 
@@ -132,6 +140,8 @@ public sealed partial class MainPage
             _browserSessionService.ClearStoredSession();
         }
 
+        _approvedFederatedBrowserHosts.Clear();
+
         _browserContent.ClearCache();
 
         await RunWithLoadingAsync(
@@ -164,6 +174,71 @@ public sealed partial class MainPage
         }
     }
 
+    private void SessionWebView_NavigationStarting(
+        CoreWebView2 sender,
+        CoreWebView2NavigationStartingEventArgs args)
+    {
+        if (args.Uri.Equals("about:blank", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (TryApproveBrowserNavigation(
+                args.Uri,
+                args.IsUserInitiated && !args.IsRedirected,
+                out _))
+        {
+            return;
+        }
+
+        args.Cancel = true;
+        BrowserInfoBar.Title = AppText.Get("InvalidUrlTitle");
+        BrowserInfoBar.Message = AppText.Get("InvalidUrlMessage");
+        BrowserInfoBar.Severity = InfoBarSeverity.Warning;
+        StartupDiagnostics.Write($"Blocked WebView navigation to an untrusted origin: {args.Uri}");
+    }
+
+    private void SessionWebView_NewWindowRequested(
+        CoreWebView2 sender,
+        CoreWebView2NewWindowRequestedEventArgs args)
+    {
+        args.Handled = true;
+        if (TryApproveBrowserNavigation(args.Uri, isUserInitiated: false, out var targetUri))
+        {
+            sender.Navigate(targetUri.AbsoluteUri);
+        }
+        else
+        {
+            StartupDiagnostics.Write($"Blocked WebView new-window request to an untrusted origin: {args.Uri}");
+        }
+    }
+
+    private static void SessionWebView_DownloadStarting(
+        CoreWebView2 sender,
+        CoreWebView2DownloadStartingEventArgs args)
+    {
+        args.Cancel = true;
+        args.Handled = true;
+        StartupDiagnostics.Write("Blocked a download initiated by the browser session.");
+    }
+
+    private static void SessionWebView_PermissionRequested(
+        CoreWebView2 sender,
+        CoreWebView2PermissionRequestedEventArgs args)
+    {
+        args.State = CoreWebView2PermissionState.Deny;
+        args.Handled = true;
+        StartupDiagnostics.Write($"Denied WebView permission request: {args.PermissionKind}.");
+    }
+
+    private static void SessionWebView_ServerCertificateErrorDetected(
+        CoreWebView2 sender,
+        CoreWebView2ServerCertificateErrorDetectedEventArgs args)
+    {
+        args.Action = CoreWebView2ServerCertificateErrorAction.Cancel;
+        StartupDiagnostics.Write($"Blocked WebView certificate error for {args.RequestUri}: {args.ErrorStatus}.");
+    }
+
     private async Task CheckUpdatesOnStartupAsync()
     {
         try
@@ -172,6 +247,7 @@ public sealed partial class MainPage
             if (updateStatus?.Update is not null)
             {
                 ShowActionMessage(updateStatus.Title, updateStatus.Message, updateStatus.Severity);
+                NotifyUpdateReady(updateStatus);
             }
         }
         catch (Exception ex)
@@ -218,6 +294,7 @@ public sealed partial class MainPage
         if (!_browserInitialized)
         {
             await SessionWebView.EnsureCoreWebView2Async();
+            ConfigureBrowserSecurity();
             _browserInitialized = true;
         }
 
@@ -235,7 +312,7 @@ public sealed partial class MainPage
     {
         await EnsureBrowserInitializedAsync(navigate: false);
         var uri = ParseBrowserUri(value);
-        if (uri is null)
+        if (uri is null || !WebViewOriginPolicy.IsTrustedMicrosoftUri(uri))
         {
             BrowserInfoBar.Title = AppText.Get("InvalidUrlTitle");
             BrowserInfoBar.Message = AppText.Get("InvalidUrlMessage");
@@ -245,6 +322,66 @@ public sealed partial class MainPage
 
         BrowserAddressBox.Text = uri.ToString();
         SessionWebView.Source = uri;
+    }
+
+    private void ConfigureBrowserSecurity()
+    {
+        if (_browserSecurityConfigured || SessionWebView.CoreWebView2 is null)
+        {
+            return;
+        }
+
+        var coreWebView = SessionWebView.CoreWebView2;
+        var settings = coreWebView.Settings;
+        settings.AreBrowserAcceleratorKeysEnabled = false;
+        settings.AreDefaultContextMenusEnabled = false;
+        settings.AreDefaultScriptDialogsEnabled = false;
+        settings.AreDevToolsEnabled = false;
+        settings.AreHostObjectsAllowed = false;
+        settings.IsGeneralAutofillEnabled = false;
+        settings.IsPasswordAutosaveEnabled = false;
+        settings.IsStatusBarEnabled = false;
+        settings.IsWebMessageEnabled = false;
+        settings.IsScriptEnabled = true;
+        settings.IsBuiltInErrorPageEnabled = true;
+        SessionWebView.AllowDrop = false;
+
+        coreWebView.NavigationStarting += SessionWebView_NavigationStarting;
+        coreWebView.NewWindowRequested += SessionWebView_NewWindowRequested;
+        coreWebView.DownloadStarting += SessionWebView_DownloadStarting;
+        coreWebView.PermissionRequested += SessionWebView_PermissionRequested;
+        coreWebView.ServerCertificateErrorDetected += SessionWebView_ServerCertificateErrorDetected;
+        _browserSecurityConfigured = true;
+    }
+
+    private bool TryApproveBrowserNavigation(
+        string value,
+        bool isUserInitiated,
+        out Uri targetUri)
+    {
+        targetUri = null!;
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var parsedUri) ||
+            !WebViewOriginPolicy.IsSecureWebUri(parsedUri))
+        {
+            return false;
+        }
+
+        targetUri = parsedUri;
+        if (WebViewOriginPolicy.IsTrustedMicrosoftUri(parsedUri) ||
+            WebViewOriginPolicy.IsApprovedFederatedUri(parsedUri, _approvedFederatedBrowserHosts))
+        {
+            return true;
+        }
+
+        var currentUri = SessionWebView.Source;
+        if (!WebViewOriginPolicy.CanBeginFederatedSignIn(currentUri, parsedUri, isUserInitiated))
+        {
+            return false;
+        }
+
+        _approvedFederatedBrowserHosts.Add(parsedUri.DnsSafeHost);
+        StartupDiagnostics.Write($"Temporarily allowed federated identity origin: {parsedUri.DnsSafeHost}.");
+        return true;
     }
 
     private async Task<RouteTestResult> TestRouteWithBrowserSessionAsync(DriveRoute route)
@@ -274,12 +411,30 @@ public sealed partial class MainPage
                 result.Message,
                 result.Success ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
         }
+
+        await RefreshOperationsHealthAsync();
+    }
+
+    private void NotifyUpdateReady(AppUpdateStatus? status)
+    {
+        if (status?.Update is null || !ViewModel.IsNotificationDeliveryEnabled || !ViewModel.NotifyUpdateReady)
+        {
+            return;
+        }
+
+        App.Services.Notifications.Show(
+            "update-ready",
+            AppText.Get("NotificationUpdateReadyTitle"),
+            AppText.Get("NotificationUpdateReadyMessage"),
+            "Updates",
+            status.Update.VersionText);
     }
 
     private async Task ClearBrowserSessionAsync()
     {
         await EnsureBrowserInitializedAsync(navigate: false);
         await _browserSessionService.ClearSessionAsync(SessionWebView.CoreWebView2);
+        _approvedFederatedBrowserHosts.Clear();
         _browserContent.ClearCache();
         var result = new RouteTestResult(false, AppText.Get("LoginClearedMessage"));
         ViewModel.UpdateBrowserSessionStatus(result);

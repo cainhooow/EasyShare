@@ -1,4 +1,5 @@
 using EasyShare.Models;
+using EasyShare.Resources;
 using Microsoft.Data.Sqlite;
 using System.Text.Json;
 
@@ -39,7 +40,11 @@ public sealed class LocalDatabase
                 RemotePath TEXT NOT NULL,
                 IsConnected INTEGER NOT NULL,
                 StatusText TEXT NOT NULL,
-                LastCheckedAt TEXT NULL
+                LastCheckedAt TEXT NULL,
+                SiteId TEXT NULL,
+                DriveId TEXT NULL,
+                RootItemId TEXT NULL,
+                FolderWebUrl TEXT NULL
             );
 
             CREATE TABLE IF NOT EXISTS SyncJobs (
@@ -72,6 +77,7 @@ public sealed class LocalDatabase
             );
             """);
 
+        await EnsureDriveRouteColumnsAsync(connection);
         await EnsureSyncJobColumnsAsync(connection);
 
         await MigrateStartMinimizedDefaultAsync(connection);
@@ -106,9 +112,22 @@ public sealed class LocalDatabase
             BrowserKeepSessionAlive = GetBool(values, nameof(AppSettings.BrowserKeepSessionAlive), true),
             BrowserKeepAliveMinutes = GetInt(values, nameof(AppSettings.BrowserKeepAliveMinutes), 20),
             ThemeMode = GetEnum(values, nameof(AppSettings.ThemeMode), AppThemeMode.System),
-            AccentColor = Get(values, nameof(AppSettings.AccentColor), "#E86F2D"),
+            AccentColor = Get(values, nameof(AppSettings.AccentColor), "#F97316"),
             HighContrastEnabled = GetBool(values, nameof(AppSettings.HighContrastEnabled), false),
-            SetupWizardCompleted = GetBool(values, nameof(AppSettings.SetupWizardCompleted), false)
+            LanguageCode = Get(values, nameof(AppSettings.LanguageCode), AppText.PortugueseLanguageCode),
+            SetupWizardCompleted = GetBool(values, nameof(AppSettings.SetupWizardCompleted), false),
+            SetupWizardCompletedVersion = GetInt(values, nameof(AppSettings.SetupWizardCompletedVersion), 0),
+            NotificationsEnabled = GetBool(values, nameof(AppSettings.NotificationsEnabled), true),
+            NotifyUploadCompleted = GetBool(values, nameof(AppSettings.NotifyUploadCompleted), true),
+            NotifyUploadFailed = GetBool(values, nameof(AppSettings.NotifyUploadFailed), true),
+            NotifyConflict = GetBool(values, nameof(AppSettings.NotifyConflict), true),
+            NotifySessionExpired = GetBool(values, nameof(AppSettings.NotifySessionExpired), true),
+            NotifyDriveDisconnected = GetBool(values, nameof(AppSettings.NotifyDriveDisconnected), true),
+            NotifyUpdateReady = GetBool(values, nameof(AppSettings.NotifyUpdateReady), true),
+            QuietModeEnabled = GetBool(values, nameof(AppSettings.QuietModeEnabled), false),
+            OfflineCacheLimitMb = GetInt(values, nameof(AppSettings.OfflineCacheLimitMb), 2048),
+            OfflinePauseOnMeteredNetwork = GetBool(values, nameof(AppSettings.OfflinePauseOnMeteredNetwork), true),
+            OfflinePauseOnBattery = GetBool(values, nameof(AppSettings.OfflinePauseOnBattery), true)
         };
     }
 
@@ -132,7 +151,20 @@ public sealed class LocalDatabase
         await SaveSettingAsync(connection, transaction, nameof(AppSettings.ThemeMode), settings.ThemeMode.ToString());
         await SaveSettingAsync(connection, transaction, nameof(AppSettings.AccentColor), NormalizeAccentColor(settings.AccentColor));
         await SaveSettingAsync(connection, transaction, nameof(AppSettings.HighContrastEnabled), settings.HighContrastEnabled.ToString());
+        await SaveSettingAsync(connection, transaction, nameof(AppSettings.LanguageCode), AppText.NormalizeLanguageCode(settings.LanguageCode));
         await SaveSettingAsync(connection, transaction, nameof(AppSettings.SetupWizardCompleted), settings.SetupWizardCompleted.ToString());
+        await SaveSettingAsync(connection, transaction, nameof(AppSettings.SetupWizardCompletedVersion), Math.Max(0, settings.SetupWizardCompletedVersion).ToString());
+        await SaveSettingAsync(connection, transaction, nameof(AppSettings.NotificationsEnabled), settings.NotificationsEnabled.ToString());
+        await SaveSettingAsync(connection, transaction, nameof(AppSettings.NotifyUploadCompleted), settings.NotifyUploadCompleted.ToString());
+        await SaveSettingAsync(connection, transaction, nameof(AppSettings.NotifyUploadFailed), settings.NotifyUploadFailed.ToString());
+        await SaveSettingAsync(connection, transaction, nameof(AppSettings.NotifyConflict), settings.NotifyConflict.ToString());
+        await SaveSettingAsync(connection, transaction, nameof(AppSettings.NotifySessionExpired), settings.NotifySessionExpired.ToString());
+        await SaveSettingAsync(connection, transaction, nameof(AppSettings.NotifyDriveDisconnected), settings.NotifyDriveDisconnected.ToString());
+        await SaveSettingAsync(connection, transaction, nameof(AppSettings.NotifyUpdateReady), settings.NotifyUpdateReady.ToString());
+        await SaveSettingAsync(connection, transaction, nameof(AppSettings.QuietModeEnabled), settings.QuietModeEnabled.ToString());
+        await SaveSettingAsync(connection, transaction, nameof(AppSettings.OfflineCacheLimitMb), Math.Clamp(settings.OfflineCacheLimitMb, 128, 102400).ToString());
+        await SaveSettingAsync(connection, transaction, nameof(AppSettings.OfflinePauseOnMeteredNetwork), settings.OfflinePauseOnMeteredNetwork.ToString());
+        await SaveSettingAsync(connection, transaction, nameof(AppSettings.OfflinePauseOnBattery), settings.OfflinePauseOnBattery.ToString());
         await transaction.CommitAsync();
     }
 
@@ -160,7 +192,8 @@ public sealed class LocalDatabase
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            SELECT Id, DisplayName, SharePointUrl, RemotePath, IsConnected, StatusText, LastCheckedAt
+            SELECT Id, DisplayName, SharePointUrl, RemotePath, IsConnected, StatusText, LastCheckedAt,
+                   SiteId, DriveId, RootItemId, FolderWebUrl
             FROM DriveRoutes
             ORDER BY DisplayName COLLATE NOCASE;
             """;
@@ -177,7 +210,11 @@ public sealed class LocalDatabase
                 RemotePath = reader.GetString(3),
                 IsConnected = reader.GetInt32(4) == 1,
                 StatusText = reader.GetString(5),
-                LastCheckedAt = reader.IsDBNull(6) ? null : DateTimeOffset.Parse(reader.GetString(6))
+                LastCheckedAt = reader.IsDBNull(6) ? null : DateTimeOffset.Parse(reader.GetString(6)),
+                SiteId = GetNullableString(reader, 7),
+                DriveId = GetNullableString(reader, 8),
+                RootItemId = GetNullableString(reader, 9),
+                FolderWebUrl = GetNullableString(reader, 10)
             });
         }
 
@@ -192,8 +229,12 @@ public sealed class LocalDatabase
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            INSERT INTO DriveRoutes (Id, DisplayName, SharePointUrl, RemotePath, IsConnected, StatusText, LastCheckedAt)
-            VALUES ($id, $displayName, $sharePointUrl, $remotePath, $isConnected, $statusText, $lastCheckedAt);
+            INSERT INTO DriveRoutes
+                (Id, DisplayName, SharePointUrl, RemotePath, IsConnected, StatusText, LastCheckedAt,
+                 SiteId, DriveId, RootItemId, FolderWebUrl)
+            VALUES
+                ($id, $displayName, $sharePointUrl, $remotePath, $isConnected, $statusText, $lastCheckedAt,
+                 $siteId, $driveId, $rootItemId, $folderWebUrl);
             """;
         BindRouteParameters(command, route);
 
@@ -214,7 +255,11 @@ public sealed class LocalDatabase
                 RemotePath = $remotePath,
                 IsConnected = $isConnected,
                 StatusText = $statusText,
-                LastCheckedAt = $lastCheckedAt
+                LastCheckedAt = $lastCheckedAt,
+                SiteId = $siteId,
+                DriveId = $driveId,
+                RootItemId = $rootItemId,
+                FolderWebUrl = $folderWebUrl
             WHERE Id = $id;
             """;
         BindRouteParameters(command, route);
@@ -448,6 +493,23 @@ public sealed class LocalDatabase
         }
     }
 
+    public void InvalidateRouteDirectoryCache(Guid routeId)
+    {
+        try
+        {
+            using var connection = CreateConnection();
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "DELETE FROM DirectoryCache WHERE RouteId = $routeId;";
+            command.Parameters.AddWithValue("$routeId", routeId.ToString());
+            command.ExecuteNonQuery();
+        }
+        catch
+        {
+            // Cache invalidation is best effort.
+        }
+    }
+
     private SqliteConnection CreateConnection() => new(_connectionString);
 
     private static SyncJob ReadSyncJob(SqliteDataReader reader) => new()
@@ -482,6 +544,32 @@ public sealed class LocalDatabase
         command.Parameters.AddWithValue("$attempts", Math.Max(0, job.Attempts));
         command.Parameters.AddWithValue("$lastError", string.IsNullOrWhiteSpace(job.LastError) ? (object)DBNull.Value : job.LastError);
         command.Parameters.AddWithValue("$nextAttemptAt", job.NextAttemptAt?.ToString("O") ?? (object)DBNull.Value);
+    }
+
+    private static async Task EnsureDriveRouteColumnsAsync(SqliteConnection connection)
+    {
+        var columns = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["SiteId"] = "TEXT NULL",
+            ["DriveId"] = "TEXT NULL",
+            ["RootItemId"] = "TEXT NULL",
+            ["FolderWebUrl"] = "TEXT NULL"
+        };
+
+        foreach (var column in columns)
+        {
+            await using var check = connection.CreateCommand();
+            check.CommandText = "SELECT 1 FROM pragma_table_info('DriveRoutes') WHERE name = $name LIMIT 1;";
+            check.Parameters.AddWithValue("$name", column.Key);
+            if (await check.ExecuteScalarAsync() is not null)
+            {
+                continue;
+            }
+
+            await using var alter = connection.CreateCommand();
+            alter.CommandText = $"ALTER TABLE DriveRoutes ADD COLUMN {column.Key} {column.Value};";
+            await alter.ExecuteNonQueryAsync();
+        }
     }
 
     private static async Task EnsureSyncJobColumnsAsync(SqliteConnection connection)
@@ -577,7 +665,14 @@ public sealed class LocalDatabase
         command.Parameters.AddWithValue("$isConnected", route.IsConnected ? 1 : 0);
         command.Parameters.AddWithValue("$statusText", route.StatusText);
         command.Parameters.AddWithValue("$lastCheckedAt", route.LastCheckedAt?.ToString("O") ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$siteId", ToNullableDatabaseValue(route.SiteId));
+        command.Parameters.AddWithValue("$driveId", ToNullableDatabaseValue(route.DriveId));
+        command.Parameters.AddWithValue("$rootItemId", ToNullableDatabaseValue(route.RootItemId));
+        command.Parameters.AddWithValue("$folderWebUrl", ToNullableDatabaseValue(route.FolderWebUrl));
     }
+
+    private static object ToNullableDatabaseValue(string value) =>
+        string.IsNullOrWhiteSpace(value) ? DBNull.Value : value;
 
     private static async Task ExecuteAsync(SqliteConnection connection, string commandText)
     {
@@ -624,7 +719,7 @@ public sealed class LocalDatabase
                normalized[0] == '#' &&
                normalized[1..].All(Uri.IsHexDigit)
             ? normalized.ToUpperInvariant()
-            : "#E86F2D";
+            : "#F97316";
     }
 
     private static string NormalizeMountPoint(string mountPoint)

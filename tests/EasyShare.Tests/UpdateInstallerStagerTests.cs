@@ -16,7 +16,8 @@ public sealed class UpdateInstallerStagerTests
 
         try
         {
-            var stagedPath = UpdateInstallerStager.Stage(sourcePath, root);
+            var staged = UpdateInstallerStager.StageVerified(sourcePath, root);
+            var stagedPath = staged.Path;
 
             Assert.True(File.Exists(stagedPath));
             Assert.NotEqual(Path.GetFullPath(sourcePath), Path.GetFullPath(stagedPath));
@@ -24,6 +25,7 @@ public sealed class UpdateInstallerStagerTests
             Assert.StartsWith(Path.Combine("EasyShareUpdate", string.Empty), relativeStagedPath, StringComparison.OrdinalIgnoreCase);
             Assert.EndsWith("EasyShareSetup.exe", stagedPath, StringComparison.OrdinalIgnoreCase);
             Assert.Equal([1, 2, 3, 4], File.ReadAllBytes(stagedPath));
+            Assert.True(UpdateIntegrity.VerifyFile(stagedPath, staged.Sha256));
         }
         finally
         {

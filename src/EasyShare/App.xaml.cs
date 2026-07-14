@@ -16,14 +16,17 @@ public partial class App : Application
 {
     private const string SingleInstanceMutexName = @"Local\EasyShare.SingleInstance";
     private Mutex? _singleInstanceMutex;
+    private SingleInstanceActivationService? _singleInstanceActivation;
 
     public static Window? MainWindow { get; private set; }
     public static bool StartMinimized { get; private set; }
+    public static AppServices Services { get; private set; } = null!;
 
     public App()
     {
         if (!TryClaimSingleInstance())
         {
+            SingleInstanceActivationService.TrySignalExistingInstance();
             StartupDiagnostics.Write("Another EasyShare instance is already running. Exiting duplicate process.");
             Environment.Exit(0);
             return;
@@ -36,7 +39,9 @@ public partial class App : Application
 
         try
         {
+            AppText.SetLanguage(AppText.LoadStartupLanguageCode());
             InitializeComponent();
+            Services = AppServices.Create();
             StartupDiagnostics.Write("App XAML loaded.");
         }
         catch (Exception ex)
@@ -44,6 +49,19 @@ public partial class App : Application
             StartupDiagnostics.Write("App XAML failed.", ex);
             throw;
         }
+    }
+
+    public static void ShutdownServices()
+    {
+        if (Current is App app)
+        {
+            app._singleInstanceActivation?.Dispose();
+            app._singleInstanceActivation = null;
+            app._singleInstanceMutex?.Dispose();
+            app._singleInstanceMutex = null;
+        }
+
+        Services?.Dispose();
     }
 
     private bool TryClaimSingleInstance()
@@ -66,8 +84,19 @@ public partial class App : Application
         {
             StartupDiagnostics.Write($"OnLaunched started. Arguments: {args.Arguments}");
             StartMinimized = args.Arguments.Contains("--minimized", StringComparison.OrdinalIgnoreCase);
+            Services.Notifications.Register();
             MainWindow = new MainWindow();
             MainWindow.Activate();
+            _singleInstanceActivation = new SingleInstanceActivationService();
+            _singleInstanceActivation.ActivationRequested += () =>
+                MainWindow.DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (MainWindow is MainWindow mainWindow)
+                    {
+                        mainWindow.RestoreAndActivate();
+                    }
+                });
+            _singleInstanceActivation.Start();
 
             if (StartMinimized)
             {

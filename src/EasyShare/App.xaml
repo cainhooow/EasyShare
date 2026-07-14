@@ -18,8 +18,8 @@
                     <SolidColorBrush x:Key="EasyShareCommandBarBackgroundBrush" Color="Transparent" />
                     <SolidColorBrush x:Key="EasyShareDialogBackgroundBrush" Color="#FFFFFF" />
                     <SolidColorBrush x:Key="EasyShareOverlayBackgroundBrush" Color="#F5F7FA" />
-                    <SolidColorBrush x:Key="EasyShareAccentBrush" Color="#E86F2D" />
-                    <SolidColorBrush x:Key="EasyShareAccentSoftBrush" Color="#FFF0E6" />
+                    <SolidColorBrush x:Key="EasyShareAccentBrush" Color="#F97316" />
+                    <SolidColorBrush x:Key="EasyShareAccentSoftBrush" Color="#FFF1E8" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Light">
                     <SolidColorBrush x:Key="EasyShareShellBackgroundBrush" Color="Transparent" />
@@ -28,8 +28,8 @@
                     <SolidColorBrush x:Key="EasyShareCommandBarBackgroundBrush" Color="Transparent" />
                     <SolidColorBrush x:Key="EasyShareDialogBackgroundBrush" Color="#FFFFFF" />
                     <SolidColorBrush x:Key="EasyShareOverlayBackgroundBrush" Color="#F5F7FA" />
-                    <SolidColorBrush x:Key="EasyShareAccentBrush" Color="#E86F2D" />
-                    <SolidColorBrush x:Key="EasyShareAccentSoftBrush" Color="#FFF0E6" />
+                    <SolidColorBrush x:Key="EasyShareAccentBrush" Color="#F97316" />
+                    <SolidColorBrush x:Key="EasyShareAccentSoftBrush" Color="#FFF1E8" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
                     <SolidColorBrush x:Key="EasyShareShellBackgroundBrush" Color="Transparent" />
@@ -39,7 +39,7 @@
                     <SolidColorBrush x:Key="EasyShareDialogBackgroundBrush" Color="#25292F" />
                     <SolidColorBrush x:Key="EasyShareOverlayBackgroundBrush" Color="#17191D" />
                     <SolidColorBrush x:Key="EasyShareAccentBrush" Color="#FF9A5B" />
-                    <SolidColorBrush x:Key="EasyShareAccentSoftBrush" Color="#443027" />
+                    <SolidColorBrush x:Key="EasyShareAccentSoftBrush" Color="#3D2A20" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="HighContrast">
                     <SolidColorBrush x:Key="EasyShareShellBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />

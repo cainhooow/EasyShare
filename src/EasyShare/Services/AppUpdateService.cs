@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Net;
@@ -10,6 +9,8 @@ using System.Text.RegularExpressions;
 using EasyShare.Resources;
 using Microsoft.UI.Xaml.Controls;
 using Windows.ApplicationModel;
+using Windows.Services.Store;
+using WinRT.Interop;
 
 namespace EasyShare.Services;
 
@@ -30,14 +31,23 @@ public sealed record AppUpdateInfo(
     long AssetSizeBytes,
     Uri DownloadUrl,
     string ExpectedSha256,
-    bool IsIncremental);
+    bool IsIncremental,
+    AppUpdateChannel Channel = AppUpdateChannel.GitHubReleases);
 
-public sealed record AppUpdateProgress(long BytesReceived, long? TotalBytes)
+public sealed record AppUpdateProgress(
+    long BytesReceived,
+    long? TotalBytes,
+    double? PercentageOverride = null)
 {
     public double Percentage
     {
         get
         {
+            if (PercentageOverride is double percentage)
+            {
+                return Math.Clamp(percentage, 0d, 100d);
+            }
+
             var totalBytes = TotalBytes.GetValueOrDefault();
             return totalBytes > 0
                 ? Math.Clamp(BytesReceived * 100d / totalBytes, 0d, 100d)
@@ -45,15 +55,24 @@ public sealed record AppUpdateProgress(long BytesReceived, long? TotalBytes)
         }
     }
 
-    public bool IsIndeterminate => TotalBytes.GetValueOrDefault() <= 0;
+    public bool IsIndeterminate =>
+        PercentageOverride is null &&
+        TotalBytes.GetValueOrDefault() <= 0;
 }
 
-public sealed class AppUpdateService
+public sealed class AppUpdateService : IDisposable
 {
+    private static readonly TimeSpan ReleaseMetadataTimeout = TimeSpan.FromSeconds(20);
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly Regex VersionPattern = new(@"\d+(?:\.\d+){0,3}", RegexOptions.Compiled);
     private readonly AppDataPaths _paths;
     private readonly HttpClient _httpClient;
+    private readonly UpdateDownloadClient _downloadClient;
+    private readonly UpdateInstallerTrustGate _installerTrustGate;
+    private readonly Action<ProcessStartInfo> _processStarter;
+    private IReadOnlyList<StorePackageUpdate> _pendingStoreUpdates = [];
+    private StoreContext? _storeContext;
+    private IntPtr _storeContextWindow;
 
     public string RepositoryOwner { get; }
 
@@ -61,16 +80,43 @@ public sealed class AppUpdateService
 
     public string RepositoryFullName => $"{RepositoryOwner}/{RepositoryName}";
 
-    public AppUpdateService(AppDataPaths paths)
+    public AppUpdateChannel UpdateChannel { get; }
+
+    public AppUpdateService(
+        AppDataPaths paths,
+        AppUpdateChannel? updateChannel = null,
+        HttpMessageHandler? httpMessageHandler = null,
+        UpdateInstallerTrustGate? installerTrustGate = null,
+        Action<ProcessStartInfo>? processStarter = null,
+        TimeSpan? downloadTimeout = null)
     {
         _paths = paths;
+        UpdateChannel = updateChannel ?? AppUpdateChannelResolver.ResolveCurrent();
         RepositoryOwner = ReadAssemblyMetadata("GitHubRepositoryOwner", "cainhooow");
         RepositoryName = ReadAssemblyMetadata("GitHubRepositoryName", "EasyShare");
 
-        _httpClient = new HttpClient();
-        _httpClient.Timeout = TimeSpan.FromSeconds(20);
+        httpMessageHandler ??= new SocketsHttpHandler
+        {
+            AllowAutoRedirect = false,
+            AutomaticDecompression = DecompressionMethods.All
+        };
+        _httpClient = new HttpClient(httpMessageHandler, disposeHandler: true)
+        {
+            Timeout = Timeout.InfiniteTimeSpan
+        };
         _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("EasyShare-Updater", "1.0"));
         _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+        _downloadClient = new UpdateDownloadClient(_httpClient, downloadTimeout);
+
+        var publisherPolicy = UpdatePublisherPolicy.FromAssemblyMetadata(typeof(AppUpdateService).Assembly);
+        _installerTrustGate = installerTrustGate ?? new UpdateInstallerTrustGate(
+            publisherPolicy,
+            new AuthenticodeUpdateSignatureVerifier());
+        _processStarter = processStarter ?? (startInfo =>
+        {
+            _ = Process.Start(startInfo)
+                ?? throw new InvalidOperationException("Windows did not start the update installer.");
+        });
     }
 
     public string CurrentVersion
@@ -89,7 +135,12 @@ public sealed class AppUpdateService
         }
     }
 
-    public async Task<AppUpdateStatus> CheckForUpdatesAsync(CancellationToken cancellationToken = default)
+    public Task<AppUpdateStatus> CheckForUpdatesAsync(CancellationToken cancellationToken = default) =>
+        UpdateChannel == AppUpdateChannel.MicrosoftStore
+            ? CheckMicrosoftStoreForUpdatesAsync(cancellationToken)
+            : CheckGitHubForUpdatesAsync(cancellationToken);
+
+    private async Task<AppUpdateStatus> CheckGitHubForUpdatesAsync(CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(RepositoryOwner) || string.IsNullOrWhiteSpace(RepositoryName))
         {
@@ -101,7 +152,10 @@ public sealed class AppUpdateService
 
         try
         {
-            using var response = await GetLatestReleaseResponseAsync(cancellationToken);
+            using var operationSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            operationSource.CancelAfter(ReleaseMetadataTimeout);
+            var operationToken = operationSource.Token;
+            using var response = await GetLatestReleaseResponseAsync(operationToken);
 
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
@@ -113,11 +167,17 @@ public sealed class AppUpdateService
 
             response.EnsureSuccessStatusCode();
 
-            await using var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            if (response.Content.Headers.ContentLength is > UpdateUriPolicy.MaxReleaseMetadataBytes)
+            {
+                throw new InvalidDataException("The GitHub release metadata response is too large.");
+            }
+
+            await response.Content.LoadIntoBufferAsync(UpdateUriPolicy.MaxReleaseMetadataBytes, operationToken);
+            await using var responseStream = await response.Content.ReadAsStreamAsync(operationToken);
             var release = await JsonSerializer.DeserializeAsync<GitHubReleaseResponse>(
                 responseStream,
                 JsonOptions,
-                cancellationToken);
+                operationToken);
 
             if (release is null || string.IsNullOrWhiteSpace(release.TagName))
             {
@@ -152,7 +212,12 @@ public sealed class AppUpdateService
             if (asset is null ||
                 string.IsNullOrWhiteSpace(asset.Name) ||
                 string.IsNullOrWhiteSpace(asset.BrowserDownloadUrl) ||
-                !Uri.TryCreate(asset.BrowserDownloadUrl, UriKind.Absolute, out var downloadUrl))
+                !Uri.TryCreate(asset.BrowserDownloadUrl, UriKind.Absolute, out var downloadUrl) ||
+                !UpdateUriPolicy.IsTrustedInitialDownloadUri(
+                    downloadUrl,
+                    RepositoryOwner,
+                    RepositoryName) ||
+                !UpdateUriPolicy.IsValidInstallerSize(asset.Size))
             {
                 return new AppUpdateStatus(
                     AppText.Get("UpdateStatusNoAssetTitle"),
@@ -160,7 +225,11 @@ public sealed class AppUpdateService
                     InfoBarSeverity.Warning);
             }
 
-            var releasePageUrl = Uri.TryCreate(release.HtmlUrl, UriKind.Absolute, out var parsedReleaseUrl)
+            var releasePageUrl = Uri.TryCreate(release.HtmlUrl, UriKind.Absolute, out var parsedReleaseUrl) &&
+                                 UpdateUriPolicy.IsTrustedReleasePageUri(
+                                     parsedReleaseUrl,
+                                     RepositoryOwner,
+                                     RepositoryName)
                 ? parsedReleaseUrl
                 : new Uri($"https://github.com/{RepositoryOwner}/{RepositoryName}/releases/latest");
 
@@ -192,7 +261,7 @@ public sealed class AppUpdateService
                 InfoBarSeverity.Warning,
                 update);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
@@ -206,29 +275,180 @@ public sealed class AppUpdateService
         }
     }
 
+    private async Task<AppUpdateStatus> CheckMicrosoftStoreForUpdatesAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var updates = await GetStoreContext().GetAppAndOptionalStorePackageUpdatesAsync();
+            cancellationToken.ThrowIfCancellationRequested();
+            _pendingStoreUpdates = updates.ToArray();
+
+            if (_pendingStoreUpdates.Count == 0)
+            {
+                return new AppUpdateStatus(
+                    AppText.Get("UpdateStatusNoneTitle"),
+                    AppText.Format("UpdateStatusStoreNoneMessage", CurrentVersion),
+                    InfoBarSeverity.Success);
+            }
+
+            var latestVersion = _pendingStoreUpdates
+                .Select(update => ToVersion(update.Package.Id.Version))
+                .OrderDescending()
+                .First();
+            var storeUri = new Uri("ms-windows-store://downloadsandupdates");
+            var updateInfo = new AppUpdateInfo(
+                latestVersion.ToString(4),
+                latestVersion,
+                "Microsoft Store",
+                "Microsoft Store",
+                string.Empty,
+                storeUri,
+                "Microsoft Store",
+                0,
+                storeUri,
+                string.Empty,
+                false,
+                AppUpdateChannel.MicrosoftStore);
+
+            return new AppUpdateStatus(
+                AppText.Get("UpdateStatusAvailableTitle"),
+                AppText.Format("UpdateStatusStoreAvailableMessage", updateInfo.VersionText),
+                InfoBarSeverity.Warning,
+                updateInfo);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            StartupDiagnostics.Write("Microsoft Store update check failed.", ex);
+            _pendingStoreUpdates = [];
+            return new AppUpdateStatus(
+                AppText.Get("UpdateStatusErrorTitle"),
+                AppText.Get("UpdateStatusStoreErrorMessage"),
+                InfoBarSeverity.Warning);
+        }
+    }
+
+    public async Task<StorePackageUpdateState> InstallMicrosoftStoreUpdateAsync(
+        IntPtr ownerWindow,
+        IProgress<AppUpdateProgress>? progress = null)
+    {
+        if (UpdateChannel != AppUpdateChannel.MicrosoftStore || _pendingStoreUpdates.Count == 0)
+        {
+            throw new InvalidOperationException("No Microsoft Store update is ready to install.");
+        }
+
+        var context = GetStoreContext();
+        if (ownerWindow != IntPtr.Zero && _storeContextWindow != ownerWindow)
+        {
+            InitializeWithWindow.Initialize(context, ownerWindow);
+            _storeContextWindow = ownerWindow;
+        }
+
+        var operation = context.RequestDownloadAndInstallStorePackageUpdatesAsync(_pendingStoreUpdates);
+        operation.Progress = (_, status) =>
+        {
+            var totalBytes = status.PackageDownloadSizeInBytes > 0
+                ? checked((long)Math.Min(status.PackageDownloadSizeInBytes, long.MaxValue))
+                : (long?)null;
+            var bytesReceived = checked((long)Math.Min(status.PackageBytesDownloaded, long.MaxValue));
+            progress?.Report(new AppUpdateProgress(
+                bytesReceived,
+                totalBytes,
+                status.TotalDownloadProgress * 100d));
+        };
+
+        var result = await operation;
+        if (result.OverallState == StorePackageUpdateState.Completed)
+        {
+            _pendingStoreUpdates = [];
+        }
+
+        return result.OverallState;
+    }
+
     private async Task<HttpResponseMessage> GetLatestReleaseResponseAsync(CancellationToken cancellationToken)
     {
+        var apiUri = new Uri($"https://api.github.com/repos/{RepositoryOwner}/{RepositoryName}/releases/latest");
+        if (!UpdateUriPolicy.IsTrustedGitHubApiUri(apiUri, RepositoryOwner, RepositoryName))
+        {
+            throw new InvalidDataException("The configured update metadata endpoint is invalid.");
+        }
+
         for (var attempt = 0; attempt < 2; attempt++)
         {
             try
             {
-                using var request = new HttpRequestMessage(
-                    HttpMethod.Get,
-                    $"https://api.github.com/repos/{RepositoryOwner}/{RepositoryName}/releases/latest");
-                request.Headers.CacheControl = new CacheControlHeaderValue { NoCache = true };
-                return await _httpClient.SendAsync(request, cancellationToken);
+                return await SendTrustedMetadataRequestAsync(apiUri, cancellationToken);
             }
-            catch (Exception) when (attempt == 0 && !cancellationToken.IsCancellationRequested)
+            catch (HttpRequestException) when (attempt == 0 && !cancellationToken.IsCancellationRequested)
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(350), cancellationToken);
             }
         }
 
-        using var finalRequest = new HttpRequestMessage(
-            HttpMethod.Get,
-            $"https://api.github.com/repos/{RepositoryOwner}/{RepositoryName}/releases/latest");
-        finalRequest.Headers.CacheControl = new CacheControlHeaderValue { NoCache = true };
-        return await _httpClient.SendAsync(finalRequest, cancellationToken);
+        return await SendTrustedMetadataRequestAsync(apiUri, cancellationToken);
+    }
+
+    private async Task<HttpResponseMessage> SendTrustedMetadataRequestAsync(
+        Uri initialUri,
+        CancellationToken cancellationToken)
+    {
+        var currentUri = initialUri;
+        for (var redirectCount = 0; redirectCount <= UpdateUriPolicy.MaxRedirects; redirectCount++)
+        {
+            if (!UpdateUriPolicy.IsTrustedGitHubApiUri(currentUri, RepositoryOwner, RepositoryName))
+            {
+                throw new InvalidDataException("The release metadata redirect target is not trusted.");
+            }
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, currentUri);
+            request.Headers.CacheControl = new CacheControlHeaderValue { NoCache = true };
+            var response = await _httpClient.SendAsync(
+                request,
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken);
+            try
+            {
+                var actualUri = response.RequestMessage?.RequestUri ?? currentUri;
+                if (!UpdateUriPolicy.IsTrustedGitHubApiUri(actualUri, RepositoryOwner, RepositoryName))
+                {
+                    throw new InvalidDataException("The final release metadata origin is not trusted.");
+                }
+
+                if (!UpdateUriPolicy.IsRedirectStatusCode(response.StatusCode))
+                {
+                    return response;
+                }
+
+                if (redirectCount == UpdateUriPolicy.MaxRedirects ||
+                    !UpdateUriPolicy.TryResolveRedirect(
+                        actualUri,
+                        response.Headers.Location,
+                        out var redirectUri) ||
+                    !UpdateUriPolicy.IsTrustedGitHubApiUri(
+                        redirectUri,
+                        RepositoryOwner,
+                        RepositoryName))
+                {
+                    throw new InvalidDataException("The release metadata redirect chain is invalid or too long.");
+                }
+
+                currentUri = redirectUri;
+            }
+            catch
+            {
+                response.Dispose();
+                throw;
+            }
+
+            response.Dispose();
+        }
+
+        throw new InvalidDataException("The release metadata redirect chain is too long.");
     }
 
     public async Task<string> DownloadUpdateAsync(
@@ -236,6 +456,11 @@ public sealed class AppUpdateService
         IProgress<AppUpdateProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
+        if (update.Channel != AppUpdateChannel.GitHubReleases)
+        {
+            throw new InvalidOperationException("Microsoft Store updates must be installed through StoreContext.");
+        }
+
         _paths.EnsureCreated();
         var updatesDirectory = GetUpdateDirectory(update);
         Directory.CreateDirectory(updatesDirectory);
@@ -253,54 +478,31 @@ public sealed class AppUpdateService
             throw new InvalidDataException("A release asset without a SHA-256 digest cannot be installed.");
         }
 
-        var temporaryPath = $"{targetPath}.download";
-        TryDeleteFile(temporaryPath);
-
-        using var response = await _httpClient.GetAsync(
-            update.DownloadUrl,
-            HttpCompletionOption.ResponseHeadersRead,
+        var transferProgress = progress is null
+            ? null
+            : new Progress<UpdateDownloadTransferProgress>(value =>
+                progress.Report(new AppUpdateProgress(value.BytesReceived, value.TotalBytes)));
+        await _downloadClient.DownloadAsync(
+            new UpdateDownloadRequest(
+                update.DownloadUrl,
+                RepositoryOwner,
+                RepositoryName,
+                targetPath,
+                update.AssetSizeBytes,
+                update.ExpectedSha256),
+            transferProgress,
             cancellationToken);
-        response.EnsureSuccessStatusCode();
-
-        var totalBytes = response.Content.Headers.ContentLength > 0
-            ? response.Content.Headers.ContentLength
-            : update.AssetSizeBytes > 0 ? update.AssetSizeBytes : null;
-
-        var bytesReceived = 0L;
-        progress?.Report(new AppUpdateProgress(bytesReceived, totalBytes));
-
-        await using (var downloadStream = await response.Content.ReadAsStreamAsync(cancellationToken))
-        await using (var fileStream = new FileStream(
-                         temporaryPath,
-                         FileMode.Create,
-                         FileAccess.Write,
-                         FileShare.None,
-                         bufferSize: 81920,
-                         useAsync: true))
-        {
-            var buffer = new byte[81920];
-            int bytesRead;
-            while ((bytesRead = await downloadStream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken)) > 0)
-            {
-                await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
-                bytesReceived += bytesRead;
-                progress?.Report(new AppUpdateProgress(bytesReceived, totalBytes));
-            }
-        }
-
-        File.Move(temporaryPath, targetPath, overwrite: true);
-        if (!UpdateIntegrity.VerifyFile(targetPath, update.ExpectedSha256))
-        {
-            TryDeleteFile(targetPath);
-            throw new InvalidDataException("The downloaded update failed SHA-256 verification.");
-        }
-
-        progress?.Report(new AppUpdateProgress(bytesReceived, totalBytes ?? bytesReceived));
         return targetPath;
     }
 
     public bool TryGetDownloadedUpdatePath(AppUpdateInfo update, out string downloadedPath)
     {
+        if (update.Channel != AppUpdateChannel.GitHubReleases)
+        {
+            downloadedPath = string.Empty;
+            return false;
+        }
+
         downloadedPath = GetDownloadedUpdatePath(update);
         return TryUseExistingDownload(update, downloadedPath);
     }
@@ -309,9 +511,9 @@ public sealed class AppUpdateService
     {
         try
         {
-            var stagedPath = UpdateInstallerStager.Stage(installerPath);
-            var fullPath = Path.GetFullPath(stagedPath);
-            Process.Start(new ProcessStartInfo
+            var trustedInstaller = _installerTrustGate.Prepare(installerPath);
+            var fullPath = Path.GetFullPath(trustedInstaller.Path);
+            _processStarter(new ProcessStartInfo
             {
                 FileName = fullPath,
                 WorkingDirectory = Path.GetDirectoryName(fullPath) ?? string.Empty,
@@ -319,7 +521,7 @@ public sealed class AppUpdateService
             });
             return true;
         }
-        catch (Exception ex) when (ex is Win32Exception or IOException or UnauthorizedAccessException or ArgumentException)
+        catch (Exception ex)
         {
             StartupDiagnostics.Write("Update installer launch failed.", ex);
             return false;
@@ -328,6 +530,20 @@ public sealed class AppUpdateService
 
     public void OpenReleasePage(AppUpdateInfo update)
     {
+        if (update.Channel != AppUpdateChannel.GitHubReleases)
+        {
+            return;
+        }
+
+        if (!UpdateUriPolicy.IsTrustedReleasePageUri(
+                update.ReleasePageUrl,
+                RepositoryOwner,
+                RepositoryName))
+        {
+            StartupDiagnostics.Write("Blocked an untrusted update release-page URL.");
+            return;
+        }
+
         Process.Start(new ProcessStartInfo
         {
             FileName = update.ReleasePageUrl.ToString(),
@@ -335,8 +551,15 @@ public sealed class AppUpdateService
         });
     }
 
+    public void Dispose() => _httpClient.Dispose();
+
     private Version ParseCurrentVersion() =>
         TryParseVersion(CurrentVersion, out var version) ? version : new Version(0, 0, 0, 0);
+
+    private StoreContext GetStoreContext() => _storeContext ??= StoreContext.GetDefault();
+
+    private static Version ToVersion(PackageVersion version) =>
+        new(version.Major, version.Minor, version.Build, version.Revision);
 
     private static bool TryParseVersion(string value, out Version version)
     {

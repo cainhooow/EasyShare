@@ -66,6 +66,14 @@ public sealed partial class MainWindow : Window
 
     public void HideToTray() => _trayIconService?.Hide();
 
+    public void RestoreAndActivate()
+    {
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        ShowWindow(hwnd, 9);
+        Activate();
+        SetForegroundWindow(hwnd);
+    }
+
     public void ApplyTitleBarAppearance(bool useDarkButtons, bool highContrast)
     {
         try
@@ -112,6 +120,7 @@ public sealed partial class MainWindow : Window
     private void ExitFromTray()
     {
         _exitRequested = true;
+        App.ShutdownServices();
         Close();
         Application.Current.Exit();
     }
@@ -137,4 +146,10 @@ public sealed partial class MainWindow : Window
         _trayIconService?.Dispose();
         _trayIconService = null;
     }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
 }

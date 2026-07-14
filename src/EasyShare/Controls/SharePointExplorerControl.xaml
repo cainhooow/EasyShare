@@ -1,0 +1,287 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="EasyShare.Controls.SharePointExplorerControl"
+    x:Name="ExplorerRoot"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:EasyShare.Controls"
+    xmlns:models="using:EasyShare.Models"
+    xmlns:viewModels="using:EasyShare.ViewModels"
+    MinHeight="360">
+    <UserControl.Resources>
+        <DataTemplate x:Key="ExplorerFolderTemplate" x:DataType="models:SharePointExplorerItem">
+            <Grid
+                Padding="12,9"
+                ColumnSpacing="12"
+                AutomationProperties.Name="{x:Bind Name}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <SymbolIcon
+                    VerticalAlignment="Center"
+                    Foreground="{ThemeResource EasyShareAccentBrush}"
+                    Symbol="Folder" />
+                <StackPanel Grid.Column="1" Spacing="2">
+                    <TextBlock
+                        Style="{ThemeResource BodyStrongTextBlockStyle}"
+                        Text="{x:Bind Name}" />
+                    <TextBlock
+                        Style="{ThemeResource CaptionTextBlockStyle}"
+                        Text="{x:Bind WebUrl}"
+                        TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+            </Grid>
+        </DataTemplate>
+
+        <DataTemplate x:Key="ExplorerFileTemplate" x:DataType="models:SharePointExplorerItem">
+            <Grid
+                Padding="12,9"
+                ColumnSpacing="12"
+                AutomationProperties.Name="{x:Bind Name}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <SymbolIcon
+                    VerticalAlignment="Center"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Symbol="OpenFile" />
+                <StackPanel Grid.Column="1" Spacing="2">
+                    <TextBlock
+                        Style="{ThemeResource BodyStrongTextBlockStyle}"
+                        Text="{x:Bind Name}" />
+                    <TextBlock
+                        Style="{ThemeResource CaptionTextBlockStyle}"
+                        Text="{x:Bind WebUrl}"
+                        TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+            </Grid>
+        </DataTemplate>
+
+        <controls:SharePointExplorerItemTemplateSelector
+            x:Key="ExplorerItemTemplateSelector"
+            FileTemplate="{StaticResource ExplorerFileTemplate}"
+            FolderTemplate="{StaticResource ExplorerFolderTemplate}" />
+    </UserControl.Resources>
+
+    <Grid RowSpacing="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Spacing="4">
+            <TextBlock
+                Style="{ThemeResource TitleTextBlockStyle}"
+                Text="{x:Bind ViewModel.ExplorerTitle, Mode=OneWay}" />
+            <TextBlock
+                Style="{ThemeResource BodyTextBlockStyle}"
+                Text="{x:Bind ViewModel.ExplorerSubtitle, Mode=OneWay}"
+                TextWrapping="Wrap" />
+        </StackPanel>
+
+        <CommandBar
+            Grid.Row="1"
+            Background="{ThemeResource EasyShareCommandBarBackgroundBrush}"
+            DefaultLabelPosition="Right"
+            IsDynamicOverflowEnabled="True">
+            <CommandBar.PrimaryCommands>
+                <AppBarButton
+                    Click="BackButton_Click"
+                    IsEnabled="{x:Bind ViewModel.CanNavigateBack, Mode=OneWay}"
+                    Label="{x:Bind ViewModel.ExplorerActionBack, Mode=OneWay}">
+                    <AppBarButton.Icon>
+                        <SymbolIcon Symbol="Back" />
+                    </AppBarButton.Icon>
+                </AppBarButton>
+                <AppBarButton
+                    Click="RefreshButton_Click"
+                    IsEnabled="{x:Bind ViewModel.CanRefresh, Mode=OneWay}"
+                    Label="{x:Bind ViewModel.ExplorerActionRefresh, Mode=OneWay}">
+                    <AppBarButton.Icon>
+                        <SymbolIcon Symbol="Refresh" />
+                    </AppBarButton.Icon>
+                </AppBarButton>
+                <AppBarButton
+                    Click="PinButton_Click"
+                    IsEnabled="{x:Bind ViewModel.CanPinCurrentFolder, Mode=OneWay}"
+                    Label="{x:Bind ViewModel.ExplorerActionPinCurrent, Mode=OneWay}">
+                    <AppBarButton.Icon>
+                        <SymbolIcon Symbol="Save" />
+                    </AppBarButton.Icon>
+                </AppBarButton>
+            </CommandBar.PrimaryCommands>
+            <CommandBar.SecondaryCommands>
+                <AppBarButton
+                    Click="ManualRouteButton_Click"
+                    Label="{x:Bind ViewModel.ExplorerActionManualUrl, Mode=OneWay}">
+                    <AppBarButton.Icon>
+                        <SymbolIcon Symbol="Link" />
+                    </AppBarButton.Icon>
+                </AppBarButton>
+            </CommandBar.SecondaryCommands>
+        </CommandBar>
+
+        <Grid
+            x:Name="SelectorGrid"
+            Grid.Row="2"
+            ColumnSpacing="12"
+            RowSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup>
+                    <VisualState x:Name="NarrowSelectors">
+                        <VisualState.StateTriggers>
+                            <AdaptiveTrigger MinWindowWidth="0" />
+                        </VisualState.StateTriggers>
+                    </VisualState>
+                    <VisualState x:Name="WideSelectors">
+                        <VisualState.StateTriggers>
+                            <AdaptiveTrigger MinWindowWidth="720" />
+                        </VisualState.StateTriggers>
+                        <VisualState.Setters>
+                            <Setter Target="SitePicker.(Grid.ColumnSpan)" Value="1" />
+                            <Setter Target="LibraryPicker.(Grid.Row)" Value="1" />
+                            <Setter Target="LibraryPicker.(Grid.Column)" Value="1" />
+                            <Setter Target="LibraryPicker.(Grid.ColumnSpan)" Value="1" />
+                        </VisualState.Setters>
+                    </VisualState>
+                </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+
+            <AutoSuggestBox
+                x:Name="SiteSearchBox"
+                Grid.ColumnSpan="2"
+                AutomationProperties.Name="{x:Bind ViewModel.ExplorerSearchPlaceholder, Mode=OneWay}"
+                IsEnabled="{x:Bind ViewModel.CanSearch, Mode=OneWay}"
+                PlaceholderText="{x:Bind ViewModel.ExplorerSearchPlaceholder, Mode=OneWay}"
+                QuerySubmitted="SiteSearchBox_QuerySubmitted"
+                Text="{x:Bind ViewModel.SearchQuery, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}">
+                <AutoSuggestBox.QueryIcon>
+                    <SymbolIcon Symbol="Find" />
+                </AutoSuggestBox.QueryIcon>
+            </AutoSuggestBox>
+
+            <ComboBox
+                x:Name="SitePicker"
+                Grid.Row="1"
+                Grid.ColumnSpan="2"
+                AutomationProperties.Name="{x:Bind ViewModel.ExplorerSitePickerPlaceholder, Mode=OneWay}"
+                DisplayMemberPath="DisplayName"
+                IsEnabled="{x:Bind ViewModel.CanSelectSite, Mode=OneWay}"
+                ItemsSource="{x:Bind ViewModel.Sites, Mode=OneWay}"
+                PlaceholderText="{x:Bind ViewModel.ExplorerSitePickerPlaceholder, Mode=OneWay}"
+                SelectedItem="{x:Bind ViewModel.SelectedSite, Mode=OneWay}"
+                SelectionChanged="SitePicker_SelectionChanged" />
+
+            <ComboBox
+                x:Name="LibraryPicker"
+                Grid.Row="2"
+                Grid.ColumnSpan="2"
+                AutomationProperties.Name="{x:Bind ViewModel.ExplorerLibraryPickerPlaceholder, Mode=OneWay}"
+                DisplayMemberPath="Name"
+                IsEnabled="{x:Bind ViewModel.CanSelectLibrary, Mode=OneWay}"
+                ItemsSource="{x:Bind ViewModel.Libraries, Mode=OneWay}"
+                PlaceholderText="{x:Bind ViewModel.ExplorerLibraryPickerPlaceholder, Mode=OneWay}"
+                SelectedItem="{x:Bind ViewModel.SelectedLibrary, Mode=OneWay}"
+                SelectionChanged="LibraryPicker_SelectionChanged" />
+        </Grid>
+
+        <BreadcrumbBar
+            x:Name="FolderBreadcrumb"
+            Grid.Row="3"
+            AutomationProperties.Name="{x:Bind ViewModel.ExplorerBreadcrumbAutomationName, Mode=OneWay}"
+            ItemClicked="FolderBreadcrumb_ItemClicked"
+            ItemsSource="{x:Bind ViewModel.Breadcrumbs, Mode=OneWay}">
+            <BreadcrumbBar.ItemTemplate>
+                <DataTemplate x:DataType="viewModels:SharePointExplorerBreadcrumb">
+                    <TextBlock Text="{x:Bind DisplayName}" />
+                </DataTemplate>
+            </BreadcrumbBar.ItemTemplate>
+        </BreadcrumbBar>
+
+        <StackPanel Grid.Row="4" Spacing="8">
+            <InfoBar
+                IsClosable="False"
+                IsOpen="True"
+                Message="{x:Bind ViewModel.ExplorerDiscoveryNoticeMessage, Mode=OneWay}"
+                Severity="Informational"
+                Title="{x:Bind ViewModel.ExplorerDiscoveryNoticeTitle, Mode=OneWay}" />
+            <InfoBar
+                IsClosable="False"
+                IsOpen="{x:Bind ViewModel.RequiresAuthentication, Mode=OneWay}"
+                Message="{x:Bind ViewModel.ExplorerAuthMessage, Mode=OneWay}"
+                Severity="Warning"
+                Title="{x:Bind ViewModel.ExplorerAuthTitle, Mode=OneWay}">
+                <InfoBar.ActionButton>
+                    <Button
+                        Click="SignInButton_Click"
+                        Content="{x:Bind ViewModel.ExplorerActionSignIn, Mode=OneWay}" />
+                </InfoBar.ActionButton>
+            </InfoBar>
+            <InfoBar
+                IsClosable="False"
+                IsOpen="{x:Bind ViewModel.HasError, Mode=OneWay}"
+                Message="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
+                Severity="Error"
+                Title="{x:Bind ViewModel.ExplorerErrorTitle, Mode=OneWay}" />
+            <InfoBar
+                IsClosable="False"
+                IsOpen="{x:Bind ViewModel.ShowEmptyState, Mode=OneWay}"
+                Message="{x:Bind ViewModel.EmptyMessage, Mode=OneWay}"
+                Severity="Informational"
+                Title="{x:Bind ViewModel.ExplorerEmptyTitle, Mode=OneWay}" />
+        </StackPanel>
+
+        <Grid Grid.Row="5">
+            <Border
+                Background="{ThemeResource EasyShareSurfaceBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="8">
+                <ListView
+                    x:Name="ItemsList"
+                    AutomationProperties.Name="{x:Bind ViewModel.ExplorerItemsAutomationName, Mode=OneWay}"
+                    DoubleTapped="ItemsList_DoubleTapped"
+                    ItemsSource="{x:Bind ViewModel.Items, Mode=OneWay}"
+                    ItemTemplateSelector="{StaticResource ExplorerItemTemplateSelector}"
+                    KeyDown="ItemsList_KeyDown"
+                    SelectionMode="Single" />
+            </Border>
+
+            <Border
+                Background="{ThemeResource EasyShareSurfaceBrush}"
+                Visibility="{x:Bind ViewModel.BusyVisibility, Mode=OneWay}">
+                <ProgressRing
+                    Width="44"
+                    Height="44"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    AutomationProperties.Name="{x:Bind ViewModel.ExplorerBusyAutomationName, Mode=OneWay}"
+                    IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}" />
+            </Border>
+        </Grid>
+
+        <Button
+            Grid.Row="6"
+            HorizontalAlignment="Center"
+            Click="LoadMoreButton_Click"
+            Content="{x:Bind ViewModel.ExplorerActionLoadMore, Mode=OneWay}"
+            IsEnabled="{x:Bind ViewModel.CanLoadMore, Mode=OneWay}"
+            Visibility="{x:Bind ViewModel.LoadMoreVisibility, Mode=OneWay}" />
+    </Grid>
+</UserControl>

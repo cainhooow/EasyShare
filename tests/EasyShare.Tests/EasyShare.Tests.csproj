@@ -9,10 +9,41 @@
 
   <ItemGroup>
     <Compile Include="..\..\src\EasyShare\Services\SharePointRouteParser.cs" Link="Services\SharePointRouteParser.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\RemoteHttpTransport.cs" Link="Services\RemoteHttpTransport.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\AppUpdateChannel.cs" Link="Services\AppUpdateChannel.cs" />
     <Compile Include="..\..\src\EasyShare\Services\IncrementalPatch.cs" Link="Services\IncrementalPatch.cs" />
     <Compile Include="..\..\src\EasyShare\Services\UpdateIntegrity.cs" Link="Services\UpdateIntegrity.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\UpdateUriPolicy.cs" Link="Services\UpdateUriPolicy.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\UpdateDownloadClient.cs" Link="Services\UpdateDownloadClient.cs" />
     <Compile Include="..\..\src\EasyShare\Services\UpdateInstallerStager.cs" Link="Services\UpdateInstallerStager.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\UpdatePublisherTrust.cs" Link="Services\UpdatePublisherTrust.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\UpdateInstallerTrustGate.cs" Link="Services\UpdateInstallerTrustGate.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\WebViewOriginPolicy.cs" Link="Services\WebViewOriginPolicy.cs" />
+    <Compile Include="..\..\src\EasyShare\Models\UploadPayloadStorageOptions.cs" Link="Models\UploadPayloadStorageOptions.cs" />
+    <Compile Include="..\..\src\EasyShare\Models\DiagnosticModels.cs" Link="Models\DiagnosticModels.cs" />
+    <Compile Include="..\..\src\EasyShare\Models\EnterprisePolicy.cs" Link="Models\EnterprisePolicy.cs" />
+    <Compile Include="..\..\src\EasyShare\Models\AuthenticationMode.cs" Link="Models\AuthenticationMode.cs" />
+    <Compile Include="..\..\src\EasyShare\Models\AppSettings.cs" Link="Models\AppSettings.cs" />
+    <Compile Include="..\..\src\EasyShare\Models\SetupWizardModels.cs" Link="Models\SetupWizardModels.cs" />
+    <Compile Include="..\..\src\EasyShare\Models\DriveRoute.cs" Link="Models\DriveRoute.cs" />
+    <Compile Include="..\..\src\EasyShare\Models\SyncJob.cs" Link="Models\SyncJob.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\AppDataPaths.cs" Link="Services\AppDataPaths.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\LocalDatabase.cs" Link="Services\LocalDatabase.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\PrivateFilePermissions.cs" Link="Services\PrivateFilePermissions.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\UploadPayloadStorage.cs" Link="Services\UploadPayloadStorage.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\UploadPayloadStorageFacade.cs" Link="Services\UploadPayloadStorageFacade.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\SensitiveDataRedactor.cs" Link="Services\SensitiveDataRedactor.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\RotatingDiagnosticLog.cs" Link="Services\RotatingDiagnosticLog.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\EnterprisePolicyLoader.cs" Link="Services\EnterprisePolicyLoader.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\SetupWizardAdvisor.cs" Link="Services\SetupWizardAdvisor.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\SupportBundleService.cs" Link="Services\SupportBundleService.cs" />
+    <Compile Include="..\..\src\EasyShare\Models\SharePointExplorerModels.cs" Link="Models\SharePointExplorerModels.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\GraphSharePointExplorerService.cs" Link="Services\GraphSharePointExplorerService.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\GraphSharePointContentService.cs" Link="Services\GraphSharePointContentService.cs" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.9" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.9" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4">
       <PrivateAssets>all</PrivateAssets>

@@ -2,7 +2,38 @@
 
 Todas as mudanças relevantes do EasyShare devem ser registradas neste arquivo antes da publicação de uma release.
 
-## [1.0.0.25] - 2026-07-10
+## [1.0.26.0] - 2026-07-13
+
+### Assistente de configuração
+
+- Substitui o diálogo inicial simplificado por um assistente responsivo de sete etapas: idioma, aparência, modo de acesso, conexão, integração com o Windows, cache/offline/notificações e revisão.
+- Aplica imediatamente a localização em Português (Brasil) ou English (US) e mantém a identidade visual EasyShare em temas claro, escuro, sistema e alto contraste.
+- Recomenda a melhor configuração disponível, compara Microsoft Graph e Sessão do navegador e orienta Client ID, Tenant, URL, login e consentimento em linguagem acessível.
+- Valida letra da unidade, montagem automática, inicialização com o Windows, cache de listagens, limite offline, rede limitada, bateria e notificações antes da conclusão.
+- Mantém as escolhas em rascunho durante o fluxo e realiza um único commit validado ao concluir, sem persistir parcialmente as etapas canceladas.
+- Respeita e bloqueia valores gerenciados por política corporativa, incorporando essas restrições às recomendações e validações.
+- Versiona a conclusão da primeira execução e adiciona em Ajustes a ação para executar o assistente novamente com as preferências atuais pré-preenchidas.
+
+### Explorador SharePoint
+
+- Adiciona descoberta nativa de sites acessíveis à conta, bibliotecas e pastas via Microsoft Graph após o login delegado por Client ID.
+- Permite pesquisar, navegar por breadcrumb e fixar a pasta atual sem copiar URLs; a entrada manual permanece como fallback.
+- Resolve URLs manuais em identidades estáveis do Microsoft Graph antes de persistir a rota, sem depender de cookies no modo Graph.
+- Persiste IDs estáveis de site, drive e item e usa o Graph também nas operações da unidade virtual, cache offline e fila de upload.
+- Filtra resultados pela política corporativa de hosts, confina caminhos à pasta fixada e preserva o último cache válido em falhas remotas.
+- Reduz o consentimento de site de `Sites.ReadWrite.All` para `Sites.Read.All`, mantendo escrita somente nos arquivos acessíveis ao usuário.
+
+## [1.0.25.0] - 2026-07-11
+
+### Microsoft Store
+
+- Corrige o nome de exibição do fornecedor para ArchGTi.Tech.
+- Move o incremento da release para o terceiro campo da versão e mantém a revisão reservada pela Store em zero.
+- Restringe o pacote MSIX a dispositivos Windows Desktop, evitando a oferta incompatível no Xbox.
+- Documenta a justificativa da funcionalidade restrita runFullTrust para a certificação no Partner Center.
+- Separa o canal de atualização: instalações da Microsoft Store atualizam pela Store e instalações externas continuam usando o GitHub Releases.
+- Associa o pacote à identidade ArchGTi.Tech.EasyPointShare e ao fornecedor atribuídos pelo Partner Center.
+- Usa EasyPointShare como nome de exibição reservado do pacote da Microsoft Store.
 
 ### Personalização
 
