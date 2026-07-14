@@ -12,6 +12,7 @@
     <Compile Include="..\..\src\EasyShare\Services\RemoteHttpTransport.cs" Link="Services\RemoteHttpTransport.cs" />
     <Compile Include="..\..\src\EasyShare\Services\AppUpdateChannel.cs" Link="Services\AppUpdateChannel.cs" />
     <Compile Include="..\..\src\EasyShare\Services\IncrementalPatch.cs" Link="Services\IncrementalPatch.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\GitHubPatchAssetPolicy.cs" Link="Services\GitHubPatchAssetPolicy.cs" />
     <Compile Include="..\..\src\EasyShare\Services\UpdateIntegrity.cs" Link="Services\UpdateIntegrity.cs" />
     <Compile Include="..\..\src\EasyShare\Services\UpdateUriPolicy.cs" Link="Services\UpdateUriPolicy.cs" />
     <Compile Include="..\..\src\EasyShare\Services\UpdateDownloadClient.cs" Link="Services\UpdateDownloadClient.cs" />

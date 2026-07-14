@@ -230,24 +230,26 @@ dotnet publish .\src\EasyShare\EasyShare.csproj `
   -p:AppxPackageDir=.\dist\package\
 ```
 
-O pacote MSIX precisa ser assinado antes de ser copiado para os instaladores EXE/MSI. Sem essa etapa, o `Add-AppxPackage` falha com `0x800B0100` mesmo que o certificado esteja instalado na máquina.
+O pacote MSIX precisa ser assinado antes de ser copiado para o instalador manual e para o patch. Sem essa etapa, o `Add-AppxPackage` falha com `0x800B0100` mesmo que o certificado esteja instalado na máquina.
 
 Use o certificado de code signing disponível no repositório local de certificados do Windows (ou informe o thumbprint do certificado de produção):
 
 ```powershell
 .\scripts\Sign-EasyShareArtifacts.ps1 `
   -MsixPath .\dist\package\EasyShare_1.0.26.0_x64.msix `
-  -CertificateThumbprint B3BF66137620B35E9AAB46642B8790C7DBFB8273
+  -CertificateThumbprint $env:EASYSHARE_SIGNING_CERT_THUMBPRINT
 ```
 
-Depois de assinar o MSIX, copie-o para os payloads e gere os instaladores. Assine também o EXE/MSI finais antes de publicar:
+Depois de assinar o MSIX, copie-o para os payloads e gere o instalador manual e o patch canônico. Assine os executáveis finais antes de publicar. Quando uma release fizer a ponte entre canais de assinatura, informe ao patch o certificado confiável para o cliente de origem.
 
 ```powershell
 .\scripts\Sign-EasyShareArtifacts.ps1 `
-  -MsixPath .\dist\payload-exe\EasyShare_1.0.26.0_x64.msix `
-  -ExePath .\dist\EasyShareSetup.exe `
-  -MsiPath .\dist\EasyShareSetup.msi `
-  -CertificateThumbprint B3BF66137620B35E9AAB46642B8790C7DBFB8273
+  -ExePath .\dist\EasyPointShareSetup.exe `
+  -CertificateThumbprint $env:EASYSHARE_SIGNING_CERT_THUMBPRINT
+
+.\scripts\Sign-EasyShareArtifacts.ps1 `
+  -PatchExePath .\dist\EasySharePatch_from_1_0_0_25_to_1_0_26_0.exe `
+  -CertificateThumbprint $env:EASYSHARE_PATCH_SIGNING_CERT_THUMBPRINT
 ```
 
 ### Configurar outro repositório de atualizações
@@ -262,19 +264,25 @@ dotnet build .\src\EasyShare\EasyShare.csproj `
 
 ### Publicar uma release
 
-Antes de publicar, adicione em `CHANGELOG.md` uma seção com a versão exata do `Package.appxmanifest`, por exemplo `## [1.0.26.0] - 2026-07-13`, descrevendo o que mudou. O script bloqueia a publicação quando essa seção não existe ou está vazia.
+Antes de publicar, adicione em `CHANGELOG.md` uma seção com a versão exata do `Package.appxmanifest`, por exemplo `## [1.0.26.0] - 2026-07-14`, descrevendo o que mudou. O script bloqueia a publicação quando essa seção não existe ou está vazia.
 
 Depois de gerar os instaladores em `dist/`, use o script abaixo. É necessário ter o GitHub CLI instalado e autenticado com `gh auth login`.
 
 ```powershell
 .\scripts\Publish-GitHubRelease.ps1 `
   -Repository cainhooow/EasyShare `
-  -ExePath dist/EasyShareSetup.exe `
-  -MsiPath dist/EasyShareSetup.msi `
-  -RequireTrustedSignature
+  -ExePath dist/EasyPointShareSetup.exe `
+  -PatchExePath dist/EasySharePatch_from_1_0_0_25_to_1_0_26_0.exe `
+  -MsixPath dist/EasyShare_1.0.26.0_x64.msix `
+  -BaseMsixPath dist/base/EasyShare_1.0.0.25_x64.msix `
+  -ExpectedBaseSha256 $env:EASYSHARE_BASE_MSIX_SHA256 `
+  -AdditionalAssetPaths @("dist/SHA256SUMS.txt", "dist/RELEASE-PROVENANCE.md") `
+  -ExpectedPatchSignerThumbprint $env:EASYSHARE_PATCH_SIGNING_CERT_THUMBPRINT
 ```
 
-O updater reconhece, nesta ordem, `EasyShareSetup.exe`, outros instaladores `.exe` com `EasyShare` no nome, instaladores `.msi` e pacotes `.msix`.
+O script valida as assinaturas, a identidade explícita do assinante do patch de transição, o manifesto do pacote e os hashes do MSIX incorporado nos dois executáveis. Ele também aplica o patch sobre o pacote-base aprovado e exige reconstrução byte a byte do alvo. A release permanece em rascunho enquanto assets obsoletos são removidos e o conjunto final é conferido; MSI é rejeitado.
+
+O app seleciona exclusivamente o patch cujo nome canônico liga a versão instalada à release mais recente. `EasyPointShareSetup.exe` e o MSIX ficam disponíveis na página apenas para instalação inicial ou recuperação manual; não há fallback automático para pacote completo.
 
 Quando uma nova versão estiver disponível, o conteúdo da seção correspondente do GitHub Release aparece na tela **Sobre**, em **O que há de novo**, antes das ações de download e instalação.
 

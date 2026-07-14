@@ -99,13 +99,46 @@ function Test-EasySharePackageSignature {
 }
 
 function Cache-EasySharePackage {
+    $destination = Join-Path $packageCacheRoot $packageName
+    $temporary = Join-Path $packageCacheRoot (".{0}.{1}.tmp" -f $packageName, [guid]::NewGuid().ToString("N"))
+
     try {
         New-Item -ItemType Directory -Path $packageCacheRoot -Force | Out-Null
-        Copy-Item -LiteralPath $package -Destination (Join-Path $packageCacheRoot $packageName) -Force
+        Copy-Item -LiteralPath $package -Destination $temporary -Force
+
+        $sourceHash = (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash
+        $temporaryHash = (Get-FileHash -LiteralPath $temporary -Algorithm SHA256).Hash
+        if (-not [string]::Equals($sourceHash, $temporaryHash, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "A copia temporaria do pacote nao corresponde ao MSIX instalado."
+        }
+
+        Move-Item -LiteralPath $temporary -Destination $destination -Force
+        $cachedHash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash
+        if (-not [string]::Equals($sourceHash, $cachedHash, [System.StringComparison]::OrdinalIgnoreCase)) {
+            Remove-Item -LiteralPath $destination -Force -ErrorAction SilentlyContinue
+            throw "O pacote persistido no cache falhou na verificacao SHA-256."
+        }
+
         Write-Host "Pacote assinado armazenado para atualizacoes incrementais: $packageName"
     }
     catch {
-        Write-Warning "Nao foi possivel armazenar o pacote para atualizacoes incrementais: $($_.Exception.Message)"
+        throw "Nao foi possivel armazenar a base obrigatoria para futuras atualizacoes incrementais: $($_.Exception.Message)"
+    }
+    finally {
+        Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Remove-LegacyEasySharePackage {
+    $legacyPackages = Get-AppxPackage -Name "AAD584E5-8AD2-4CE5-9C65-B1C66E02383A" -ErrorAction SilentlyContinue
+    foreach ($legacyPackage in $legacyPackages) {
+        try {
+            Remove-AppxPackage -Package $legacyPackage.PackageFullName -ErrorAction Stop
+            Write-Host "Instalacao anterior do EasyShare removida apos a migracao."
+        }
+        catch {
+            Write-Warning "A nova versao foi instalada, mas a instalacao anterior nao pode ser removida agora: $($_.Exception.Message)"
+        }
     }
 }
 
@@ -238,6 +271,7 @@ catch {
 }
 
 Cache-EasySharePackage
+Remove-LegacyEasySharePackage
 
 if (-not (Test-WinFspInstalled)) {
     Write-Warning "WinFsp nao foi encontrado. Instale o WinFsp antes de ativar a unidade do EasyShare."

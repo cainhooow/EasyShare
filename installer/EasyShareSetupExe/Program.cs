@@ -1,8 +1,33 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 const string installScript = "Install-EasyShare.ps1";
 const string appPackageName = "EasyShare_1.0.26.0_x64.msix";
+
+if (args.Length == 1 && string.Equals(args[0], "--metadata-json", StringComparison.OrdinalIgnoreCase))
+{
+    try
+    {
+        Console.WriteLine(JsonSerializer.Serialize(
+            ReadEmbeddedPackageMetadata(),
+            SetupMetadataJsonContext.Default.EmbeddedPackageMetadata));
+        return 0;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Nao foi possivel ler os metadados do pacote incorporado: {ex.Message}");
+        return 2;
+    }
+}
+
+if (args.Length != 0)
+{
+    Console.Error.WriteLine("Uso: EasyPointShareSetup.exe [--metadata-json]");
+    return 2;
+}
 
 var tempRoot = Path.Combine(Path.GetTempPath(), "EasyShareSetup-" + Guid.NewGuid().ToString("N"));
 var logRoot = Path.Combine(Path.GetTempPath(), "EasyShareInstallerLogs");
@@ -108,3 +133,29 @@ static void ExtractPayload(string targetDirectory)
         resource.CopyTo(output);
     }
 }
+
+static EmbeddedPackageMetadata ReadEmbeddedPackageMetadata()
+{
+    var assembly = Assembly.GetExecutingAssembly();
+    var packageResources = assembly.GetManifestResourceNames()
+        .Where(name =>
+            name.EndsWith(".msix", StringComparison.OrdinalIgnoreCase) &&
+            !name.Contains("WindowsAppRuntime", StringComparison.OrdinalIgnoreCase))
+        .ToArray();
+    if (packageResources.Length != 1)
+    {
+        throw new InvalidOperationException(
+            $"Era esperado exatamente um pacote do aplicativo, mas foram encontrados {packageResources.Length}.");
+    }
+
+    using var package = assembly.GetManifestResourceStream(packageResources[0])
+        ?? throw new InvalidOperationException($"Recurso ausente: {packageResources[0]}");
+    var length = package.Length;
+    var sha256 = Convert.ToHexString(SHA256.HashData(package));
+    return new EmbeddedPackageMetadata(appPackageName, length, sha256);
+}
+
+internal sealed record EmbeddedPackageMetadata(string FileName, long Length, string Sha256);
+
+[JsonSerializable(typeof(EmbeddedPackageMetadata))]
+internal partial class SetupMetadataJsonContext : JsonSerializerContext;
