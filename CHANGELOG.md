@@ -4,6 +4,13 @@ Todas as mudanças relevantes do EasyShare devem ser registradas neste arquivo a
 
 ## [1.0.26.0] - 2026-07-14
 
+### Hotfix do instalador
+
+- Corrige o payload do Windows App Runtime usado pelo instalador manual em sistemas sem o framework previamente instalado.
+- Registra nome, tamanho e SHA-256 de todos os payloads críticos e valida a estrutura, identidade e assinaturas antes da implantação e da publicação.
+- Isola a elevação somente nos pré-requisitos, usa staging protegido e mantém a instalação do MSIX no contexto do usuário que iniciou o setup.
+- Fixa a identidade criptográfica aprovada do WinFsp e congela os digests validados antes do upload da release.
+
 ### Assistente de configuração
 
 - Substitui o diálogo inicial simplificado por um assistente responsivo de sete etapas: idioma, aparência, modo de acesso, conexão, integração com o Windows, cache/offline/notificações e revisão.

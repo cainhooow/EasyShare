@@ -75,6 +75,7 @@ function Invoke-RepositoryGates {
         "FullyQualifiedName~DiagnosticsAndSupportBundleTests",
         "FullyQualifiedName~EnterprisePolicyLoaderTests",
         "FullyQualifiedName~SetupWizardAdvisorTests",
+        "FullyQualifiedName~InstallerPayloadContractTests",
         "FullyQualifiedName~CiWorkflowContractTests"
     ) -join "|"
 
