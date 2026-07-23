@@ -166,6 +166,7 @@ public sealed class TextProvider : System.ComponentModel.INotifyPropertyChanged
     public string NavAbout => AppText.Get("NavAbout");
     public string NavBrowser => AppText.Get("NavBrowser");
     public string NavExplorer => AppText.Get("NavExplorer");
+    public string NavAssistant => AppText.Get("NavAssistant");
     public string NavHelp => AppText.Get("NavHelp");
     public string NavHome => AppText.Get("NavHome");
     public string NavRoutes => AppText.Get("NavRoutes");

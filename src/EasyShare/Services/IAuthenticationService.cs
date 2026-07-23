@@ -10,5 +10,7 @@ public interface IAuthenticationService
 
     Task<string?> GetAccessTokenAsync();
 
+    Task<string?> GetAccountScopeAsync() => Task.FromResult<string?>(null);
+
     Task SignOutAsync();
 }

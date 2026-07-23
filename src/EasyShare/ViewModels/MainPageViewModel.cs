@@ -23,6 +23,9 @@ public sealed class MainPageViewModel : ObservableObject
     private readonly SemaphoreSlim _routeMutationGate = new(1, 1);
     private readonly SemaphoreSlim _settingsMutationGate = new(1, 1);
     private AuthStatus _authStatus = AuthStatus.SignedOut();
+    private bool _isGraphAuthenticated;
+    private bool _isBrowserSessionVerified;
+    private bool _isContentIdentityAvailable;
     private VirtualDriveStatus _virtualDriveStatus = new(@"\\EasyShare\", AppText.Get("StatusLoading"), AppText.Get("StatusLoadingDetail"), false);
     private AppSettings _settings = new();
     private AppSettings _persistedSettings = new();
@@ -94,9 +97,15 @@ public sealed class MainPageViewModel : ObservableObject
             }
 
             _settings.AuthenticationMode = mode;
+            _isGraphAuthenticated = false;
+            _isBrowserSessionVerified = false;
             OnPropertyChanged();
             OnPropertyChanged(nameof(IsBrowserSessionMode));
             OnPropertyChanged(nameof(IsGraphAuthMode));
+            OnPropertyChanged(nameof(IsExplorerAvailable));
+            OnPropertyChanged(nameof(ExplorerNavigationVisibility));
+            OnPropertyChanged(nameof(IsAssistantAvailable));
+            OnPropertyChanged(nameof(AssistantNavigationVisibility));
             OnPropertyChanged(nameof(SettingsMessage));
         }
     }
@@ -104,6 +113,32 @@ public sealed class MainPageViewModel : ObservableObject
     public bool IsBrowserSessionMode => _settings.AuthenticationMode == AuthenticationMode.BrowserSession;
 
     public bool IsGraphAuthMode => _settings.AuthenticationMode == AuthenticationMode.MicrosoftGraph;
+
+    public AuthenticationMode CurrentAuthenticationMode => _settings.AuthenticationMode;
+
+    public bool IsGraphAuthenticated => _isGraphAuthenticated;
+
+    public bool IsBrowserSessionVerified => _isBrowserSessionVerified;
+
+    public bool IsContentIdentityAvailable => _isContentIdentityAvailable;
+
+    public bool IsExplorerAvailable => ExplorerAccessPolicy.IsAvailable(
+        _settings.AuthenticationMode,
+        _settings.ClientId,
+        _isGraphAuthenticated,
+        _isBrowserSessionVerified,
+        Routes.Any(IsValidAllowedSharePointRoute));
+
+    public Visibility ExplorerNavigationVisibility =>
+        IsExplorerAvailable ? Visibility.Visible : Visibility.Collapsed;
+
+    public bool IsAssistantAvailable =>
+        IsExplorerAvailable &&
+        IsContentIdentityAvailable &&
+        Routes.Any(IsAssistantRouteAvailable);
+
+    public Visibility AssistantNavigationVisibility =>
+        IsAssistantAvailable ? Visibility.Visible : Visibility.Collapsed;
 
     public string ClientId
     {
@@ -116,7 +151,12 @@ public sealed class MainPageViewModel : ObservableObject
             }
 
             _settings.ClientId = value;
+            _isGraphAuthenticated = false;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(IsExplorerAvailable));
+            OnPropertyChanged(nameof(ExplorerNavigationVisibility));
+            OnPropertyChanged(nameof(IsAssistantAvailable));
+            OnPropertyChanged(nameof(AssistantNavigationVisibility));
             OnPropertyChanged(nameof(SettingsMessage));
         }
     }
@@ -132,7 +172,12 @@ public sealed class MainPageViewModel : ObservableObject
             }
 
             _settings.TenantId = value;
+            _isGraphAuthenticated = false;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(IsExplorerAvailable));
+            OnPropertyChanged(nameof(ExplorerNavigationVisibility));
+            OnPropertyChanged(nameof(IsAssistantAvailable));
+            OnPropertyChanged(nameof(AssistantNavigationVisibility));
         }
     }
 
@@ -451,6 +496,10 @@ public sealed class MainPageViewModel : ObservableObject
 
     public bool IsInteractiveSignInAllowed => _enterprisePolicy.Policy.InteractiveSignInAllowed;
 
+    public bool IsAssistantRouteAvailable(DriveRoute route) =>
+        IsValidAllowedSharePointRoute(route) &&
+        (IsBrowserSessionMode || route.HasGraphIdentity);
+
     public bool IsRouteAllowed(string siteUrl)
     {
         var allowedHosts = _enterprisePolicy.Policy.AllowedSharePointHosts;
@@ -465,6 +514,12 @@ public sealed class MainPageViewModel : ObservableObject
                   !string.Equals(uri.DnsSafeHost, pattern[2..], StringComparison.OrdinalIgnoreCase)
                 : string.Equals(uri.DnsSafeHost, pattern, StringComparison.OrdinalIgnoreCase));
     }
+
+    private bool IsValidAllowedSharePointRoute(DriveRoute route) =>
+        route is not null &&
+        Uri.TryCreate(route.SharePointUrl, UriKind.Absolute, out var uri) &&
+        SharePointRouteParser.IsAllowedSharePointUri(uri) &&
+        IsRouteAllowed(route.SharePointUrl);
 
     public string SettingsMessage
     {
@@ -641,9 +696,17 @@ public sealed class MainPageViewModel : ObservableObject
             // do not silently turn a disabled preference back on during startup.
             _settings.StartWithWindows = requestedStartup && actualStartup;
 
-            _authStatus = IsBrowserSessionMode
-                ? BrowserSessionStatus(AppText.Get("BrowserStatusNeedSession"), signedIn: false)
-                : await _authentication.GetStatusAsync();
+            _isBrowserSessionVerified = false;
+            if (IsBrowserSessionMode)
+            {
+                _isGraphAuthenticated = false;
+                _authStatus = BrowserSessionStatus(AppText.Get("BrowserStatusNeedSession"), signedIn: false);
+            }
+            else
+            {
+                _authStatus = await _authentication.GetStatusAsync();
+                _isGraphAuthenticated = _authStatus.State == AuthState.SignedIn;
+            }
 
             Routes.Clear();
             foreach (var route in await _database.GetRoutesAsync())
@@ -688,6 +751,8 @@ public sealed class MainPageViewModel : ObservableObject
         {
             if (IsBrowserSessionMode)
             {
+                _isGraphAuthenticated = false;
+                _isBrowserSessionVerified = false;
                 _authStatus = BrowserSessionStatus(AppText.Get("BrowserStatusOpenSession"), signedIn: false);
                 SettingsMessage = AppText.Get("SettingsBrowserModeMessage");
                 RefreshState();
@@ -695,6 +760,8 @@ public sealed class MainPageViewModel : ObservableObject
             }
 
             _authStatus = await _authentication.SignInAsync(windowHandle);
+            _isGraphAuthenticated = _authStatus.State == AuthState.SignedIn;
+            _isBrowserSessionVerified = false;
             SettingsMessage = _authStatus.State == AuthState.SignedIn
                 ? AppText.Get("SettingsLoginActive")
                 : _authStatus.Message;
@@ -709,6 +776,8 @@ public sealed class MainPageViewModel : ObservableObject
             if (IsBrowserSessionMode)
             {
                 await _authentication.SignOutAsync();
+                _isGraphAuthenticated = false;
+                _isBrowserSessionVerified = false;
                 _authStatus = BrowserSessionStatus(AppText.Get("BrowserStatusSignedOut"), signedIn: false);
                 SettingsMessage = AppText.Get("SettingsLoginRemoved");
                 RefreshState();
@@ -717,6 +786,8 @@ public sealed class MainPageViewModel : ObservableObject
 
             await _authentication.SignOutAsync();
             _authStatus = await _authentication.GetStatusAsync();
+            _isGraphAuthenticated = false;
+            _isBrowserSessionVerified = false;
             SettingsMessage = AppText.Get("SettingsAccountRemoved");
             RefreshState();
         });
@@ -735,9 +806,22 @@ public sealed class MainPageViewModel : ObservableObject
                 await _database.SaveSettingsAsync(_settings);
                 _persistedSettings = SetupWizardAdvisor.CloneSettings(_settings);
                 AppText.SaveStartupLanguageCode(_settings.LanguageCode);
-                _authStatus = IsBrowserSessionMode
-                    ? BrowserSessionStatus(AppText.Get("BrowserStatusNeedSession"), signedIn: false)
-                    : await _authentication.GetStatusAsync();
+                if (IsBrowserSessionMode)
+                {
+                    _isGraphAuthenticated = false;
+                    if (!_isBrowserSessionVerified)
+                    {
+                        _authStatus = BrowserSessionStatus(
+                            AppText.Get("BrowserStatusNeedSession"),
+                            signedIn: false);
+                    }
+                }
+                else
+                {
+                    _isBrowserSessionVerified = false;
+                    _authStatus = await _authentication.GetStatusAsync();
+                    _isGraphAuthenticated = _authStatus.State == AuthState.SignedIn;
+                }
                 _virtualDriveStatus = await _virtualDrive.GetStatusAsync(_settings, Routes);
                 SettingsMessage = requestedStartWithWindows && !_settings.StartWithWindows
                     ? AppText.Get("StartupEnableBlocked")
@@ -855,14 +939,24 @@ public sealed class MainPageViewModel : ObservableObject
 
             try
             {
-                _authStatus = IsBrowserSessionMode
-                    ? BrowserSessionStatus(AppText.Get("BrowserStatusNeedSession"), signedIn: false)
-                    : await _authentication.GetStatusAsync();
+                _isBrowserSessionVerified = false;
+                if (IsBrowserSessionMode)
+                {
+                    _isGraphAuthenticated = false;
+                    _authStatus = BrowserSessionStatus(AppText.Get("BrowserStatusNeedSession"), signedIn: false);
+                }
+                else
+                {
+                    _authStatus = await _authentication.GetStatusAsync();
+                    _isGraphAuthenticated = _authStatus.State == AuthState.SignedIn;
+                }
             }
             catch (Exception ex)
             {
                 StartupDiagnostics.Write("Setup wizard authentication status refresh failed.", ex);
                 _authStatus = AuthStatus.SignedOut();
+                _isGraphAuthenticated = false;
+                _isBrowserSessionVerified = false;
                 warningMessage ??= AppText.Get("WizardReconcileWarning");
             }
 
@@ -1077,13 +1171,14 @@ public sealed class MainPageViewModel : ObservableObject
             ApplyEnterprisePolicy();
             _persistedSettings = SetupWizardAdvisor.CloneSettings(_settings);
             AppText.SetLanguage(_settings.LanguageCode);
-            AppText.SaveStartupLanguageCode(_settings.LanguageCode);
             RefreshLocalizedOptions();
             _updateStatus = CreateIdleUpdateStatus();
 
             Routes.Clear();
             SyncJobs.Clear();
             _authStatus = BrowserSessionStatus(AppText.Get("BrowserStatusNeedSession"), signedIn: false);
+            _isGraphAuthenticated = false;
+            _isBrowserSessionVerified = false;
             _virtualDriveStatus = await _virtualDrive.GetStatusAsync(_settings, Routes);
             SettingsMessage = BuildSettingsMessage();
             RefreshState();
@@ -1250,16 +1345,31 @@ public sealed class MainPageViewModel : ObservableObject
         RefreshState();
     }
 
-    public void UpdateBrowserSessionStatus(RouteTestResult result)
+    public void UpdateBrowserSessionStatus(RouteTestResult result, bool hasVerifiedRoute = true)
     {
         if (!IsBrowserSessionMode)
         {
             return;
         }
 
-        _authStatus = BrowserSessionStatus(result.Message, result.Success);
+        _isGraphAuthenticated = false;
+        _isBrowserSessionVerified = result.Success && hasVerifiedRoute;
+        _authStatus = BrowserSessionStatus(result.Message, _isBrowserSessionVerified);
         SettingsMessage = result.Message;
         RefreshState();
+    }
+
+    public void UpdateContentIdentityAvailability(bool isAvailable)
+    {
+        if (_isContentIdentityAvailable == isAvailable)
+        {
+            return;
+        }
+
+        _isContentIdentityAvailable = isAvailable;
+        OnPropertyChanged(nameof(IsContentIdentityAvailable));
+        OnPropertyChanged(nameof(IsAssistantAvailable));
+        OnPropertyChanged(nameof(AssistantNavigationVisibility));
     }
 
     public void ReportStartupError(string message, Exception exception)
@@ -1270,6 +1380,8 @@ public sealed class MainPageViewModel : ObservableObject
             $"{message} {exception.Message}",
             AppText.Get("StartupErrorAccount"),
             null);
+        _isGraphAuthenticated = false;
+        _isBrowserSessionVerified = false;
         SettingsMessage = AppText.Format("StartupLogFormat", StartupDiagnostics.LogPath);
         RefreshState();
     }
@@ -1519,6 +1631,14 @@ public sealed class MainPageViewModel : ObservableObject
         OnPropertyChanged(nameof(AuthenticationModeIndex));
         OnPropertyChanged(nameof(IsBrowserSessionMode));
         OnPropertyChanged(nameof(IsGraphAuthMode));
+        OnPropertyChanged(nameof(CurrentAuthenticationMode));
+        OnPropertyChanged(nameof(IsGraphAuthenticated));
+        OnPropertyChanged(nameof(IsBrowserSessionVerified));
+        OnPropertyChanged(nameof(IsContentIdentityAvailable));
+        OnPropertyChanged(nameof(IsExplorerAvailable));
+        OnPropertyChanged(nameof(ExplorerNavigationVisibility));
+        OnPropertyChanged(nameof(IsAssistantAvailable));
+        OnPropertyChanged(nameof(AssistantNavigationVisibility));
         OnPropertyChanged(nameof(CanEditGraphSettings));
         OnPropertyChanged(nameof(ClientId));
         OnPropertyChanged(nameof(TenantId));

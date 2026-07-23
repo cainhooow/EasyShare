@@ -24,21 +24,31 @@
     <Compile Include="..\..\src\EasyShare\Models\DiagnosticModels.cs" Link="Models\DiagnosticModels.cs" />
     <Compile Include="..\..\src\EasyShare\Models\EnterprisePolicy.cs" Link="Models\EnterprisePolicy.cs" />
     <Compile Include="..\..\src\EasyShare\Models\AuthenticationMode.cs" Link="Models\AuthenticationMode.cs" />
+    <Compile Include="..\..\src\EasyShare\Models\ContentIndexModels.cs" Link="Models\ContentIndexModels.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\ExplorerAccessPolicy.cs" Link="Services\ExplorerAccessPolicy.cs" />
     <Compile Include="..\..\src\EasyShare\Models\AppSettings.cs" Link="Models\AppSettings.cs" />
     <Compile Include="..\..\src\EasyShare\Models\SetupWizardModels.cs" Link="Models\SetupWizardModels.cs" />
     <Compile Include="..\..\src\EasyShare\Models\DriveRoute.cs" Link="Models\DriveRoute.cs" />
     <Compile Include="..\..\src\EasyShare\Models\SyncJob.cs" Link="Models\SyncJob.cs" />
+    <Compile Include="..\..\src\EasyShare\Models\SyncConflictActionResult.cs" Link="Models\SyncConflictActionResult.cs" />
     <Compile Include="..\..\src\EasyShare\Services\AppDataPaths.cs" Link="Services\AppDataPaths.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\LocalDataResetService.cs" Link="Services\LocalDataResetService.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\LocalDataRuntimeRehydrator.cs" Link="Services\LocalDataRuntimeRehydrator.cs" />
     <Compile Include="..\..\src\EasyShare\Services\LocalDatabase.cs" Link="Services\LocalDatabase.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\ContentIndexService.cs" Link="Services\ContentIndexService.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\ContentIdentityScope.cs" Link="Services\ContentIdentityScope.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\SharePointCookieStore.cs" Link="Services\SharePointCookieStore.cs" />
     <Compile Include="..\..\src\EasyShare\Services\PrivateFilePermissions.cs" Link="Services\PrivateFilePermissions.cs" />
     <Compile Include="..\..\src\EasyShare\Services\UploadPayloadStorage.cs" Link="Services\UploadPayloadStorage.cs" />
     <Compile Include="..\..\src\EasyShare\Services\UploadPayloadStorageFacade.cs" Link="Services\UploadPayloadStorageFacade.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\UploadQueueService.cs" Link="Services\UploadQueueService.cs" />
     <Compile Include="..\..\src\EasyShare\Services\SensitiveDataRedactor.cs" Link="Services\SensitiveDataRedactor.cs" />
     <Compile Include="..\..\src\EasyShare\Services\RotatingDiagnosticLog.cs" Link="Services\RotatingDiagnosticLog.cs" />
     <Compile Include="..\..\src\EasyShare\Services\EnterprisePolicyLoader.cs" Link="Services\EnterprisePolicyLoader.cs" />
     <Compile Include="..\..\src\EasyShare\Services\SetupWizardAdvisor.cs" Link="Services\SetupWizardAdvisor.cs" />
     <Compile Include="..\..\src\EasyShare\Services\SupportBundleService.cs" Link="Services\SupportBundleService.cs" />
     <Compile Include="..\..\src\EasyShare\Models\SharePointExplorerModels.cs" Link="Models\SharePointExplorerModels.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\ISharePointExplorerService.cs" Link="Services\ISharePointExplorerService.cs" />
     <Compile Include="..\..\src\EasyShare\Services\GraphSharePointExplorerService.cs" Link="Services\GraphSharePointExplorerService.cs" />
     <Compile Include="..\..\src\EasyShare\Services\GraphSharePointContentService.cs" Link="Services\GraphSharePointContentService.cs" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />

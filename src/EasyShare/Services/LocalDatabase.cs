@@ -64,11 +64,12 @@ public sealed class LocalDatabase
             );
 
             CREATE TABLE IF NOT EXISTS DirectoryCache (
+                AccountScope TEXT NOT NULL,
                 RouteId TEXT NOT NULL,
                 RelativePath TEXT NOT NULL,
                 CachedAt TEXT NOT NULL,
                 ItemsJson TEXT NOT NULL,
-                PRIMARY KEY (RouteId, RelativePath)
+                PRIMARY KEY (AccountScope, RouteId, RelativePath)
             );
 
             CREATE TABLE IF NOT EXISTS Settings (
@@ -79,6 +80,7 @@ public sealed class LocalDatabase
 
         await EnsureDriveRouteColumnsAsync(connection);
         await EnsureSyncJobColumnsAsync(connection);
+        await EnsureDirectoryCacheScopeAsync(connection);
 
         await MigrateStartMinimizedDefaultAsync(connection);
     }
@@ -174,6 +176,7 @@ public sealed class LocalDatabase
 
         await using var connection = CreateConnection();
         await connection.OpenAsync();
+        await ExecuteAsync(connection, "PRAGMA secure_delete = ON;");
         await using var transaction = await connection.BeginTransactionAsync();
 
         await ExecuteAsync(connection, transaction, "DELETE FROM DriveRoutes;");
@@ -182,7 +185,11 @@ public sealed class LocalDatabase
         await ExecuteAsync(connection, transaction, "DELETE FROM Settings;");
 
         await transaction.CommitAsync();
+        await ExecuteAsync(connection, "VACUUM;");
     }
+
+    public void ReleasePooledConnectionsForLocalDataReset() =>
+        SqliteConnection.ClearAllPools();
 
     public async Task<IReadOnlyList<DriveRoute>> GetRoutesAsync()
     {
@@ -397,7 +404,11 @@ public sealed class LocalDatabase
             .ToArray();
     }
 
-    public DirectoryCacheSnapshot? TryGetDirectoryCache(Guid routeId, string relativePath, TimeSpan maxAge)
+    public DirectoryCacheSnapshot? TryGetDirectoryCache(
+        string accountScope,
+        Guid routeId,
+        string relativePath,
+        TimeSpan maxAge)
     {
         try
         {
@@ -408,9 +419,12 @@ public sealed class LocalDatabase
                 """
                 SELECT CachedAt, ItemsJson
                 FROM DirectoryCache
-                WHERE RouteId = $routeId AND RelativePath = $relativePath
+                WHERE AccountScope = $accountScope
+                  AND RouteId = $routeId
+                  AND RelativePath = $relativePath
                 LIMIT 1;
                 """;
+            command.Parameters.AddWithValue("$accountScope", NormalizeCacheScope(accountScope));
             command.Parameters.AddWithValue("$routeId", routeId.ToString());
             command.Parameters.AddWithValue("$relativePath", relativePath);
 
@@ -431,7 +445,11 @@ public sealed class LocalDatabase
         }
     }
 
-    public void SaveDirectoryCache(Guid routeId, string relativePath, IReadOnlyList<SharePointDriveItem> items)
+    public void SaveDirectoryCache(
+        string accountScope,
+        Guid routeId,
+        string relativePath,
+        IReadOnlyList<SharePointDriveItem> items)
     {
         try
         {
@@ -440,12 +458,13 @@ public sealed class LocalDatabase
             using var command = connection.CreateCommand();
             command.CommandText =
                 """
-                INSERT INTO DirectoryCache (RouteId, RelativePath, CachedAt, ItemsJson)
-                VALUES ($routeId, $relativePath, $cachedAt, $itemsJson)
-                ON CONFLICT(RouteId, RelativePath) DO UPDATE SET
+                INSERT INTO DirectoryCache (AccountScope, RouteId, RelativePath, CachedAt, ItemsJson)
+                VALUES ($accountScope, $routeId, $relativePath, $cachedAt, $itemsJson)
+                ON CONFLICT(AccountScope, RouteId, RelativePath) DO UPDATE SET
                     CachedAt = excluded.CachedAt,
                     ItemsJson = excluded.ItemsJson;
                 """;
+            command.Parameters.AddWithValue("$accountScope", NormalizeCacheScope(accountScope));
             command.Parameters.AddWithValue("$routeId", routeId.ToString());
             command.Parameters.AddWithValue("$relativePath", relativePath);
             command.Parameters.AddWithValue("$cachedAt", DateTimeOffset.UtcNow.ToString("O"));
@@ -458,14 +477,20 @@ public sealed class LocalDatabase
         }
     }
 
-    public void ClearDirectoryCache()
+    public void ClearDirectoryCache(string? accountScope = null)
     {
         try
         {
             using var connection = CreateConnection();
             connection.Open();
             using var command = connection.CreateCommand();
-            command.CommandText = "DELETE FROM DirectoryCache;";
+            command.CommandText = string.IsNullOrWhiteSpace(accountScope)
+                ? "DELETE FROM DirectoryCache;"
+                : "DELETE FROM DirectoryCache WHERE AccountScope = $accountScope;";
+            if (!string.IsNullOrWhiteSpace(accountScope))
+            {
+                command.Parameters.AddWithValue("$accountScope", NormalizeCacheScope(accountScope));
+            }
             command.ExecuteNonQuery();
         }
         catch
@@ -474,7 +499,7 @@ public sealed class LocalDatabase
         }
     }
 
-    public void InvalidateDirectoryCache(Guid routeId, string relativePath)
+    public void InvalidateDirectoryCache(string accountScope, Guid routeId, string relativePath)
     {
         try
         {
@@ -482,7 +507,11 @@ public sealed class LocalDatabase
             connection.Open();
             using var command = connection.CreateCommand();
             command.CommandText =
-                "DELETE FROM DirectoryCache WHERE RouteId = $routeId AND RelativePath = $relativePath;";
+                """
+                DELETE FROM DirectoryCache
+                WHERE AccountScope = $accountScope AND RouteId = $routeId AND RelativePath = $relativePath;
+                """;
+            command.Parameters.AddWithValue("$accountScope", NormalizeCacheScope(accountScope));
             command.Parameters.AddWithValue("$routeId", routeId.ToString());
             command.Parameters.AddWithValue("$relativePath", relativePath);
             command.ExecuteNonQuery();
@@ -493,14 +522,16 @@ public sealed class LocalDatabase
         }
     }
 
-    public void InvalidateRouteDirectoryCache(Guid routeId)
+    public void InvalidateRouteDirectoryCache(string accountScope, Guid routeId)
     {
         try
         {
             using var connection = CreateConnection();
             connection.Open();
             using var command = connection.CreateCommand();
-            command.CommandText = "DELETE FROM DirectoryCache WHERE RouteId = $routeId;";
+            command.CommandText =
+                "DELETE FROM DirectoryCache WHERE AccountScope = $accountScope AND RouteId = $routeId;";
+            command.Parameters.AddWithValue("$accountScope", NormalizeCacheScope(accountScope));
             command.Parameters.AddWithValue("$routeId", routeId.ToString());
             command.ExecuteNonQuery();
         }
@@ -599,6 +630,38 @@ public sealed class LocalDatabase
             alter.CommandText = $"ALTER TABLE SyncJobs ADD COLUMN {column.Key} {column.Value};";
             await alter.ExecuteNonQueryAsync();
         }
+    }
+
+    private static async Task EnsureDirectoryCacheScopeAsync(SqliteConnection connection)
+    {
+        await using var check = connection.CreateCommand();
+        check.CommandText =
+            "SELECT 1 FROM pragma_table_info('DirectoryCache') WHERE name = 'AccountScope' LIMIT 1;";
+        if (await check.ExecuteScalarAsync() is not null)
+        {
+            return;
+        }
+
+        // Legacy cache entries cannot be attributed to an authenticated account.
+        // Discarding this best-effort cache is safer than exposing names from a
+        // previous WebView or Graph identity.
+        await using var transaction = await connection.BeginTransactionAsync();
+        await ExecuteAsync(connection, transaction, "ALTER TABLE DirectoryCache RENAME TO DirectoryCacheLegacy;");
+        await ExecuteAsync(
+            connection,
+            transaction,
+            """
+            CREATE TABLE DirectoryCache (
+                AccountScope TEXT NOT NULL,
+                RouteId TEXT NOT NULL,
+                RelativePath TEXT NOT NULL,
+                CachedAt TEXT NOT NULL,
+                ItemsJson TEXT NOT NULL,
+                PRIMARY KEY (AccountScope, RouteId, RelativePath)
+            );
+            """);
+        await ExecuteAsync(connection, transaction, "DROP TABLE DirectoryCacheLegacy;");
+        await transaction.CommitAsync();
     }
 
     private static Guid? ParseGuid(SqliteDataReader reader, int ordinal) =>
@@ -731,6 +794,17 @@ public sealed class LocalDatabase
 
         var normalized = mountPoint.Trim().ToUpperInvariant();
         return normalized.Length == 1 ? $"{normalized}:" : normalized;
+    }
+
+    private static string NormalizeCacheScope(string accountScope)
+    {
+        var normalized = accountScope?.Trim() ?? string.Empty;
+        if (normalized.Length is < 8 or > 256 || normalized.Any(char.IsControl))
+        {
+            throw new ArgumentException("The cache account scope is invalid.", nameof(accountScope));
+        }
+
+        return normalized;
     }
 }
 

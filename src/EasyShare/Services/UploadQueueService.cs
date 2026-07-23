@@ -14,8 +14,11 @@ public sealed class UploadQueueService : IDisposable
     private readonly UploadPayloadStorage _payloadStorage;
     private readonly SemaphoreSlim _signal = new(0);
     private readonly SemaphoreSlim _enqueueGate = new(1, 1);
+    private readonly SemaphoreSlim _activeTransferGate = new(1, 1);
     private readonly CancellationTokenSource _cancellation = new();
     private readonly object _workerGate = new();
+    private CancellationTokenSource _resetCancellation = new();
+    private int _resetSuspended;
     private Task? _worker;
 
     public event Action<SyncJob>? JobChanged;
@@ -64,6 +67,7 @@ public sealed class UploadQueueService : IDisposable
         await _enqueueGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            ThrowIfResetSuspended();
             var normalizedPath = NormalizePath(relativePath);
             var existing = await _database
                 .FindPendingSyncJobAsync(route.Id, normalizedPath)
@@ -118,21 +122,30 @@ public sealed class UploadQueueService : IDisposable
 
     public async Task RetryAsync(Guid jobId)
     {
-        var job = (await _database.GetSyncJobsAsync()).FirstOrDefault(item => item.Id == jobId);
-        if (job is null || job.State is SyncJobState.Completed or SyncJobState.Uploading)
+        await _enqueueGate.WaitAsync().ConfigureAwait(false);
+        try
         {
-            return;
-        }
+            ThrowIfResetSuspended();
+            var job = (await _database.GetSyncJobsAsync()).FirstOrDefault(item => item.Id == jobId);
+            if (job is null || job.State is SyncJobState.Completed or SyncJobState.Uploading)
+            {
+                return;
+            }
 
-        job.State = SyncJobState.Waiting;
-        job.Progress = 0;
-        job.Attempts = 0;
-        job.LastError = string.Empty;
-        job.NextAttemptAt = null;
-        job.UpdatedAt = DateTimeOffset.UtcNow;
-        await _database.UpdateSyncJobAsync(job);
-        Publish(job);
-        _signal.Release();
+            job.State = SyncJobState.Waiting;
+            job.Progress = 0;
+            job.Attempts = 0;
+            job.LastError = string.Empty;
+            job.NextAttemptAt = null;
+            job.UpdatedAt = DateTimeOffset.UtcNow;
+            await _database.UpdateSyncJobAsync(job);
+            Publish(job);
+            _signal.Release();
+        }
+        finally
+        {
+            _enqueueGate.Release();
+        }
     }
 
     public async Task<SyncConflictActionResult> DiscardLocalPayloadAsync(
@@ -142,6 +155,7 @@ public sealed class UploadQueueService : IDisposable
         await _enqueueGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            ThrowIfResetSuspended();
             var job = (await _database.GetSyncJobsAsync().ConfigureAwait(false))
                 .FirstOrDefault(item => item.Id == jobId);
             if (job is null)
@@ -199,6 +213,16 @@ public sealed class UploadQueueService : IDisposable
         CancellationToken cancellationToken = default)
     {
         await _enqueueGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ThrowIfResetSuspended();
+        }
+        catch
+        {
+            _enqueueGate.Release();
+            throw;
+        }
+
         var createdDestination = false;
         string? fullDestination = null;
         try
@@ -301,6 +325,7 @@ public sealed class UploadQueueService : IDisposable
         await _enqueueGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            ThrowIfResetSuspended();
             var job = (await _database.GetSyncJobsAsync().ConfigureAwait(false))
                 .FirstOrDefault(item => item.Id == jobId);
             if (job is null)
@@ -353,21 +378,56 @@ public sealed class UploadQueueService : IDisposable
         _signal.Release();
         _signal.Dispose();
         _enqueueGate.Dispose();
+        _activeTransferGate.Dispose();
+        _resetCancellation.Dispose();
         _cancellation.Dispose();
+    }
+
+    public async Task<IAsyncDisposable> SuspendForResetAsync(CancellationToken cancellationToken = default)
+    {
+        if (Interlocked.CompareExchange(ref _resetSuspended, 1, 0) != 0)
+        {
+            throw new InvalidOperationException("The upload queue is already paused for local data deletion.");
+        }
+
+        _resetCancellation.Cancel();
+        _signal.Release();
+        var enqueueGateAcquired = false;
+        try
+        {
+            await _enqueueGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            enqueueGateAcquired = true;
+            await _activeTransferGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return new ResetSuspension(this);
+        }
+        catch
+        {
+            ResumeAfterReset();
+            if (enqueueGateAcquired)
+            {
+                _enqueueGate.Release();
+            }
+
+            throw;
+        }
     }
 
     private async Task ProcessLoopAsync()
     {
-        await CleanupPayloadStorageAsync().ConfigureAwait(false);
+        await CleanupPayloadStorageUnderResetBarrierAsync().ConfigureAwait(false);
 
         while (!_cancellation.IsCancellationRequested)
         {
             var processed = false;
             try
             {
-                var jobs = await _database.GetPendingSyncJobsAsync();
+                var jobs = await GetPendingSyncJobsUnderResetBarrierAsync().ConfigureAwait(false);
                 foreach (var job in jobs)
                 {
+                    if (Volatile.Read(ref _resetSuspended) != 0)
+                    {
+                        break;
+                    }
                     if (job.NextAttemptAt > DateTimeOffset.UtcNow)
                     {
                         continue;
@@ -400,6 +460,27 @@ public sealed class UploadQueueService : IDisposable
 
     private async Task ProcessJobAsync(SyncJob job)
     {
+        await _activeTransferGate.WaitAsync(_cancellation.Token).ConfigureAwait(false);
+        try
+        {
+            if (Volatile.Read(ref _resetSuspended) != 0)
+            {
+                return;
+            }
+
+            using var operationCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                _cancellation.Token,
+                _resetCancellation.Token);
+            await ProcessJobCoreAsync(job, operationCancellation.Token).ConfigureAwait(false);
+        }
+        finally
+        {
+            _activeTransferGate.Release();
+        }
+    }
+
+    private async Task ProcessJobCoreAsync(SyncJob job, CancellationToken cancellationToken)
+    {
         if (job.RouteId is null || string.IsNullOrWhiteSpace(job.RelativePath))
         {
             await MarkFailedAsync(job, "A rota do envio não está mais disponível.", terminal: true);
@@ -429,10 +510,10 @@ public sealed class UploadQueueService : IDisposable
         try
         {
             await _payloadStorage
-                .MigrateLegacyPayloadAsync(job.PayloadPath, _cancellation.Token)
+                .MigrateLegacyPayloadAsync(job.PayloadPath, cancellationToken)
                 .ConfigureAwait(false);
             await using var content = await _payloadStorage
-                .OpenReadAsync(job.PayloadPath, _cancellation.Token)
+                .OpenReadAsync(job.PayloadPath, cancellationToken)
                 .ConfigureAwait(false);
             result = await _contentService
                 .TryUploadFileAsync(
@@ -440,7 +521,7 @@ public sealed class UploadQueueService : IDisposable
                     job.RelativePath,
                     content,
                     job.ExpectedModifiedAt,
-                    _cancellation.Token)
+                    cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException)
@@ -530,7 +611,43 @@ public sealed class UploadQueueService : IDisposable
         }
     }
 
-    private async Task CleanupPayloadStorageAsync()
+    private async Task CleanupPayloadStorageUnderResetBarrierAsync()
+    {
+        await _activeTransferGate.WaitAsync(_cancellation.Token).ConfigureAwait(false);
+        try
+        {
+            if (Volatile.Read(ref _resetSuspended) != 0)
+            {
+                return;
+            }
+
+            using var operationCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                _cancellation.Token,
+                _resetCancellation.Token);
+            await CleanupPayloadStorageAsync(operationCancellation.Token).ConfigureAwait(false);
+        }
+        finally
+        {
+            _activeTransferGate.Release();
+        }
+    }
+
+    private async Task<IReadOnlyList<SyncJob>> GetPendingSyncJobsUnderResetBarrierAsync()
+    {
+        await _activeTransferGate.WaitAsync(_cancellation.Token).ConfigureAwait(false);
+        try
+        {
+            return Volatile.Read(ref _resetSuspended) != 0
+                ? []
+                : await _database.GetPendingSyncJobsAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            _activeTransferGate.Release();
+        }
+    }
+
+    private async Task CleanupPayloadStorageAsync(CancellationToken cancellationToken)
     {
         try
         {
@@ -540,12 +657,12 @@ public sealed class UploadQueueService : IDisposable
                 .Select(job => job.PayloadPath)
                 .Where(path => !string.IsNullOrWhiteSpace(path));
             await _payloadStorage
-                .CleanupAsync(retainedPaths, cancellationToken: _cancellation.Token)
+                .CleanupAsync(retainedPaths, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
-            // App shutdown interrupts maintenance without changing queue state.
+            // App shutdown or local reset interrupts maintenance without changing queue state.
         }
         catch (Exception ex)
         {
@@ -562,6 +679,41 @@ public sealed class UploadQueueService : IDisposable
         catch
         {
             // UI observers must never stop the upload worker.
+        }
+    }
+
+    private void ThrowIfResetSuspended()
+    {
+        if (Volatile.Read(ref _resetSuspended) != 0)
+        {
+            throw new InvalidOperationException("Local data is being deleted. New upload operations are temporarily blocked.");
+        }
+    }
+
+    private void ResumeAfterReset()
+    {
+        var previous = _resetCancellation;
+        _resetCancellation = new CancellationTokenSource();
+        Volatile.Write(ref _resetSuspended, 0);
+        previous.Dispose();
+        _signal.Release();
+    }
+
+    private sealed class ResetSuspension(UploadQueueService owner) : IAsyncDisposable
+    {
+        private UploadQueueService? _owner = owner;
+
+        public ValueTask DisposeAsync()
+        {
+            var current = Interlocked.Exchange(ref _owner, null);
+            if (current is not null)
+            {
+                current.ResumeAfterReset();
+                current._activeTransferGate.Release();
+                current._enqueueGate.Release();
+            }
+
+            return ValueTask.CompletedTask;
         }
     }
 

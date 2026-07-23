@@ -20,6 +20,7 @@ public sealed class MsalAuthenticationService : IAuthenticationService
     private IPublicClientApplication? _application;
     private string? _configuredClientId;
     private string? _configuredTenantId;
+    private string? _activeHomeAccountId;
 
     public MsalAuthenticationService(AppDataPaths paths, LocalDatabase database)
     {
@@ -36,7 +37,7 @@ public sealed class MsalAuthenticationService : IAuthenticationService
         }
 
         var application = GetApplication(settings);
-        var account = (await application.GetAccountsAsync()).FirstOrDefault();
+        var account = SelectAccount(await application.GetAccountsAsync());
 
         if (account is null)
         {
@@ -46,6 +47,7 @@ public sealed class MsalAuthenticationService : IAuthenticationService
         try
         {
             var result = await application.AcquireTokenSilent(Scopes, account).ExecuteAsync();
+            RememberActiveAccount(result.Account);
             return SignedIn(result.Account.Username, result.ExpiresOn);
         }
         catch (MsalUiRequiredException)
@@ -69,12 +71,18 @@ public sealed class MsalAuthenticationService : IAuthenticationService
         try
         {
             var application = GetApplication(settings);
-            var accounts = (await application.GetAccountsAsync()).ToArray();
+            var accounts = (await application.GetAccountsAsync())
+                .OrderByDescending(account => string.Equals(
+                    account.HomeAccountId?.Identifier,
+                    _activeHomeAccountId,
+                    StringComparison.Ordinal))
+                .ToArray();
             foreach (var account in accounts)
             {
                 try
                 {
                     var silentResult = await application.AcquireTokenSilent(Scopes, account).ExecuteAsync();
+                    RememberActiveAccount(silentResult.Account);
                     return SignedIn(silentResult.Account.Username, silentResult.ExpiresOn);
                 }
                 catch (MsalUiRequiredException)
@@ -98,6 +106,7 @@ public sealed class MsalAuthenticationService : IAuthenticationService
             }
 
             var result = await builder.ExecuteAsync();
+            RememberActiveAccount(result.Account);
             return SignedIn(result.Account.Username, result.ExpiresOn);
         }
         catch (MsalException ex)
@@ -116,7 +125,7 @@ public sealed class MsalAuthenticationService : IAuthenticationService
         }
 
         var application = GetApplication(settings);
-        var account = (await application.GetAccountsAsync()).FirstOrDefault();
+        var account = SelectAccount(await application.GetAccountsAsync());
         if (account is null)
         {
             return null;
@@ -125,6 +134,7 @@ public sealed class MsalAuthenticationService : IAuthenticationService
         try
         {
             var result = await application.AcquireTokenSilent(Scopes, account).ExecuteAsync();
+            RememberActiveAccount(result.Account);
             return result.AccessToken;
         }
         catch (MsalException)
@@ -133,11 +143,28 @@ public sealed class MsalAuthenticationService : IAuthenticationService
         }
     }
 
+    public async Task<string?> GetAccountScopeAsync()
+    {
+        var settings = await GetSettingsAsync();
+        if (!settings.HasClientId)
+        {
+            return null;
+        }
+
+        var application = GetApplication(settings);
+        var account = SelectAccount(await application.GetAccountsAsync());
+        var homeAccountId = account?.HomeAccountId?.Identifier;
+        return string.IsNullOrWhiteSpace(homeAccountId)
+            ? null
+            : ContentIdentityScope.FromGraphAccount(homeAccountId, settings.ClientId);
+    }
+
     public async Task SignOutAsync()
     {
         var settings = await GetSettingsAsync();
         if (!settings.HasClientId)
         {
+            _activeHomeAccountId = null;
             DeleteTokenCache();
             return;
         }
@@ -148,6 +175,7 @@ public sealed class MsalAuthenticationService : IAuthenticationService
             await application.RemoveAsync(account);
         }
 
+        _activeHomeAccountId = null;
         DeleteTokenCache();
     }
 
@@ -173,10 +201,20 @@ public sealed class MsalAuthenticationService : IAuthenticationService
 
         _configuredClientId = clientId;
         _configuredTenantId = tenantId;
+        _activeHomeAccountId = null;
 
         ConfigureTokenCache(_application.UserTokenCache);
         return _application;
     }
+
+    private IAccount? SelectAccount(IEnumerable<IAccount> accounts) =>
+        accounts.FirstOrDefault(account => string.Equals(
+            account.HomeAccountId?.Identifier,
+            _activeHomeAccountId,
+            StringComparison.Ordinal)) ?? accounts.FirstOrDefault();
+
+    private void RememberActiveAccount(IAccount account) =>
+        _activeHomeAccountId = account.HomeAccountId?.Identifier;
 
     private async Task<AppSettings> GetSettingsAsync()
     {

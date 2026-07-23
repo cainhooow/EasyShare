@@ -143,6 +143,37 @@ namespace EasyShare.Tests
             Assert.Equal(0, stored.SetupWizardCompletedVersion);
         }
 
+        [Fact]
+        public async Task ResetSecurelyRemovesDeletedContentFromDatabasePages()
+        {
+            using var environment = new TestDirectory();
+            var paths = CreatePaths(environment);
+            var database = new LocalDatabase(paths);
+            await database.InitializeAsync();
+            var route = CreateRoute();
+            route.DisplayName = "FORENSIC-SECRET-ROUTE";
+            route.SharePointUrl = "https://forensic-secret.sharepoint.com/sites/private";
+            await database.AddRouteAsync(route);
+            await database.SaveSettingsAsync(new AppSettings
+            {
+                ClientId = "FORENSIC-SECRET-CLIENT"
+            });
+
+            await database.ResetAsync();
+
+            Assert.Empty(await database.GetRoutesAsync());
+            await using var stream = new FileStream(
+                paths.DatabasePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            var bytes = new byte[stream.Length];
+            await stream.ReadExactlyAsync(bytes);
+            var rawDatabase = System.Text.Encoding.UTF8.GetString(bytes);
+            Assert.DoesNotContain("FORENSIC-SECRET", rawDatabase, StringComparison.Ordinal);
+            Assert.DoesNotContain("forensic-secret.sharepoint.com", rawDatabase, StringComparison.Ordinal);
+        }
+
         private static AppDataPaths CreatePaths(TestDirectory environment) =>
             new(
                 Path.Combine(environment.Root, "data"),

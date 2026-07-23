@@ -19,6 +19,8 @@ public sealed record VirtualDriveStatus(
 public interface IVirtualDriveService
 {
     Task<VirtualDriveStatus> GetStatusAsync(AppSettings settings, IReadOnlyCollection<DriveRoute> routes);
+
+    void StopForReset();
 }
 
 public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
@@ -29,6 +31,8 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
     private FileSystemHost? _host;
     private string? _mountedAt;
     private string? _routeSignature;
+    private IReadOnlyDictionary<Guid, string> _mountedRouteNames =
+        new Dictionary<Guid, string>();
 
     public VirtualDriveService(
         SharePointBrowserContentService contentService,
@@ -47,6 +51,26 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
     }
 
     public static bool IsWinFspAvailable() => IsWinFspInstalled();
+
+    public string? GetMountedRoutePath(Guid routeId)
+    {
+        lock (_gate)
+        {
+            return _host is not null &&
+                   _mountedAt is not null &&
+                   _mountedRouteNames.TryGetValue(routeId, out var routeName)
+                ? Path.Combine(FormatDisplayRoot(_mountedAt), routeName)
+                : null;
+        }
+    }
+
+    public void StopForReset()
+    {
+        lock (_gate)
+        {
+            StopMountedHost();
+        }
+    }
 
     public void Dispose()
     {
@@ -107,7 +131,12 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
 
         try
         {
-            var fileSystem = new EasyShareFileSystem(routes, _contentService, _uploadQueue);
+            var routeNames = BuildRouteMountNames(routes);
+            var fileSystem = new EasyShareFileSystem(
+                routes,
+                routeNames,
+                _contentService,
+                _uploadQueue);
             var host = new FileSystemHost(fileSystem)
             {
                 FileSystemName = "EasyShare",
@@ -136,6 +165,7 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
             _host = host;
             _mountedAt = mountPoint;
             _routeSignature = signature;
+            _mountedRouteNames = routeNames;
 
             return new VirtualDriveStatus(
                 displayRoot,
@@ -189,6 +219,7 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
             _host = null;
             _mountedAt = null;
             _routeSignature = null;
+            _mountedRouteNames = new Dictionary<Guid, string>();
         }
     }
 
@@ -226,6 +257,43 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
             ? $@"{mountPoint}\"
             : mountPoint;
 
+    private static IReadOnlyDictionary<Guid, string> BuildRouteMountNames(
+        IReadOnlyList<DriveRoute> routes)
+    {
+        var usedNames = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var routeNames = new Dictionary<Guid, string>();
+        foreach (var route in routes.OrderBy(route => route.DisplayName, StringComparer.OrdinalIgnoreCase))
+        {
+            var name = MakeSafeName(route.DisplayName);
+            if (usedNames.TryGetValue(name, out var count))
+            {
+                count++;
+                usedNames[name] = count;
+                name = $"{name} ({count})";
+            }
+            else
+            {
+                usedNames[name] = 1;
+            }
+
+            routeNames[route.Id] = name;
+        }
+
+        return routeNames;
+    }
+
+    private static string MakeSafeName(string value)
+    {
+        var safeName = string.Join(
+            " ",
+            value.Split(
+                Path.GetInvalidFileNameChars(),
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        return string.IsNullOrWhiteSpace(safeName)
+            ? AppText.Get("VirtualDriveDefaultFolderName")
+            : safeName;
+    }
+
     private static bool IsWinFspInstalled()
     {
         if (File.Exists(@"C:\Program Files (x86)\WinFsp\bin\winfsp-x64.dll") ||
@@ -260,6 +328,7 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
 
         public EasyShareFileSystem(
             IReadOnlyList<DriveRoute> routes,
+            IReadOnlyDictionary<Guid, string> routeNames,
             SharePointBrowserContentService contentService,
             UploadQueueService uploadQueue)
         {
@@ -267,7 +336,7 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
             _uploadQueue = uploadQueue;
             _securityDescriptor = CreateSecurityDescriptor();
             _rootInfo = CreateDirectoryInfo(1);
-            _rootChildren = BuildRouteNodes(routes);
+            _rootChildren = BuildRouteNodes(routes, routeNames);
             _rootNodes = _rootChildren.ToDictionary(node => node.Path, StringComparer.OrdinalIgnoreCase);
         }
 
@@ -881,25 +950,16 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
             return new VirtualNode(path, item.Name, ToFileInfo(item), parent.Route, relativePath, item.IsDirectory);
         }
 
-        private static IReadOnlyList<VirtualNode> BuildRouteNodes(IReadOnlyList<DriveRoute> routes)
+        private static IReadOnlyList<VirtualNode> BuildRouteNodes(
+            IReadOnlyList<DriveRoute> routes,
+            IReadOnlyDictionary<Guid, string> routeNames)
         {
-            var names = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             var nodes = new List<VirtualNode>();
             var index = 2UL;
 
             foreach (var route in routes.OrderBy(route => route.DisplayName, StringComparer.OrdinalIgnoreCase))
             {
-                var name = MakeSafeName(route.DisplayName);
-                if (names.TryGetValue(name, out var count))
-                {
-                    count++;
-                    names[name] = count;
-                    name = $"{name} ({count})";
-                }
-                else
-                {
-                    names[name] = 1;
-                }
+                var name = routeNames[route.Id];
 
                 nodes.Add(new VirtualNode($@"\{name}", name, CreateDirectoryInfo(index++), route, string.Empty, IsDirectory: true));
             }
@@ -996,15 +1056,6 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
             return index < 0 ? normalized : normalized[(index + 1)..];
         }
 
-        private static string MakeSafeName(string value)
-        {
-            var safeName = string.Join(
-                " ",
-                value
-                    .Split(Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-
-            return string.IsNullOrWhiteSpace(safeName) ? AppText.Get("VirtualDriveDefaultFolderName") : safeName;
-        }
     }
 
     private sealed class WritableFileHandle

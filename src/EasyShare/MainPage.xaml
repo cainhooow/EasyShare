@@ -39,9 +39,20 @@
                     <SymbolIcon Symbol="Home" />
                 </NavigationViewItem.Icon>
             </NavigationViewItem>
-            <NavigationViewItem Content="{Binding Source={StaticResource Text}, Path=NavExplorer}" Tag="Explorer">
+            <NavigationViewItem
+                Content="{Binding Source={StaticResource Text}, Path=NavExplorer}"
+                Tag="Explorer"
+                Visibility="{Binding ExplorerNavigationVisibility}">
                 <NavigationViewItem.Icon>
                     <FontIcon Glyph="&#xE838;" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem
+                Content="{Binding Source={StaticResource Text}, Path=NavAssistant}"
+                Tag="Assistant"
+                Visibility="{Binding AssistantNavigationVisibility}">
+                <NavigationViewItem.Icon>
+                    <SymbolIcon Symbol="Find" />
                 </NavigationViewItem.Icon>
             </NavigationViewItem>
             <NavigationViewItem Content="{Binding Source={StaticResource Text}, Path=NavRoutes}" Tag="Routes">
@@ -265,6 +276,8 @@
             </ScrollViewer>
 
             <controls:SharePointExplorerControl x:Name="SharePointExplorer" Visibility="Collapsed" />
+
+            <controls:ContentAssistantControl x:Name="ContentAssistant" Visibility="Collapsed" />
 
             <Grid x:Name="RoutesView" Visibility="Collapsed">
                 <Grid.RowDefinitions>
@@ -1194,10 +1207,12 @@
                                     Text="{Binding Source={StaticResource Text}, Path=SettingsResetHelp}"
                                     TextWrapping="Wrap" />
                                 <Button
+                                    x:Name="ResetAppButton"
                                     Grid.Column="1"
                                     Background="{ThemeResource SystemFillColorCriticalBrush}"
                                     Click="ResetAppButton_Click"
-                                    Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}">
+                                    Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                                    AutomationProperties.HelpText="{Binding Source={StaticResource Text}, Path=SettingsResetHelp}">
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <SymbolIcon Symbol="Delete" />
                                         <TextBlock Text="{Binding Source={StaticResource Text}, Path=ActionResetApp}" />
@@ -1217,7 +1232,8 @@
                 VerticalAlignment="Top"
                 IsClosable="True"
                 IsOpen="False"
-                Severity="Success" />
+                Severity="Success"
+                AutomationProperties.LiveSetting="Assertive" />
 
             <Grid
                 x:Name="LoadingOverlay"

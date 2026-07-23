@@ -21,6 +21,8 @@ public sealed class AppServices : IDisposable
         StartupService startup,
         GraphSharePointService graphSharePoint,
         GraphSharePointExplorerService graphSharePointExplorer,
+        BrowserSharePointExplorerService browserSharePointExplorer,
+        ContentIndexService contentIndex,
         AppUpdateService appUpdate,
         AppNotificationService notifications,
         HealthCenterService healthCenter,
@@ -39,6 +41,8 @@ public sealed class AppServices : IDisposable
         Startup = startup;
         GraphSharePoint = graphSharePoint;
         GraphSharePointExplorer = graphSharePointExplorer;
+        BrowserSharePointExplorer = browserSharePointExplorer;
+        ContentIndex = contentIndex;
         AppUpdate = appUpdate;
         Notifications = notifications;
         HealthCenter = healthCenter;
@@ -46,6 +50,8 @@ public sealed class AppServices : IDisposable
         EnterprisePolicy = enterprisePolicy;
         DiagnosticLog = diagnosticLog;
         SupportBundles = supportBundles;
+        LocalDataReset = new LocalDataResetService(paths);
+        LocalDataRuntime = new LocalDataRuntimeRehydrator(LocalDataReset, contentIndex);
     }
 
     public AppDataPaths Paths { get; }
@@ -68,6 +74,10 @@ public sealed class AppServices : IDisposable
 
     public GraphSharePointExplorerService GraphSharePointExplorer { get; }
 
+    public BrowserSharePointExplorerService BrowserSharePointExplorer { get; }
+
+    public ContentIndexService ContentIndex { get; }
+
     public AppUpdateService AppUpdate { get; }
 
     public AppNotificationService Notifications { get; }
@@ -82,9 +92,20 @@ public sealed class AppServices : IDisposable
 
     public SupportBundleService SupportBundles { get; }
 
+    public LocalDataResetService LocalDataReset { get; }
+
+    public LocalDataRuntimeRehydrator LocalDataRuntime { get; }
+
+    public Task RehydrateAfterLocalDataResetAsync(
+        CancellationToken cancellationToken = default) =>
+        LocalDataRuntime.RehydrateAsync(
+            OfflineCache.RehydrateAfterLocalDataResetAsync,
+            cancellationToken);
+
     public static AppServices Create()
     {
         var paths = new AppDataPaths();
+        new LocalDataResetService(paths).CompletePendingResetOrThrow();
         paths.EnsureCreated();
         var policy = new EnterprisePolicyLoader(paths).Load();
         StartupDiagnostics.Configure(policy.CreateDiagnosticLogOptions());
@@ -93,12 +114,16 @@ public sealed class AppServices : IDisposable
         var authentication = new MsalAuthenticationService(paths, database);
         var browserContent = new SharePointBrowserContentService(database);
         browserContent.ConfigureEnterprisePolicy(policy.Policy);
+        var contentIndex = new ContentIndexService(database);
+        browserContent.ConfigureContentIndex(contentIndex);
         var graphContent = new GraphSharePointContentService(authentication);
         browserContent.ConfigureGraphContent(graphContent);
         var graphExplorer = new GraphSharePointExplorerService(authentication);
         graphExplorer.ConfigureEnterprisePolicy(policy.Policy);
         var graphSharePoint = new GraphSharePointService(authentication);
         graphSharePoint.ConfigureEnterprisePolicy(policy.Policy);
+        var browserExplorer = new BrowserSharePointExplorerService(database, browserContent);
+        browserExplorer.ConfigureEnterprisePolicy(policy.Policy);
         var uploadPayloadStorage = new UploadPayloadStorage(
             paths,
             policy.CreateUploadPayloadStorageOptions());
@@ -126,6 +151,8 @@ public sealed class AppServices : IDisposable
             new StartupService(),
             graphSharePoint,
             graphExplorer,
+            browserExplorer,
+            contentIndex,
             updates,
             notifications,
             new HealthCenterService(database, notifications, updates, offlineCache),

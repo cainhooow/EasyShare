@@ -111,6 +111,18 @@ public static class AppText
         }
     }
 
+    public static void ClearStartupLanguageCode()
+    {
+        try
+        {
+            ApplicationData.Current.LocalSettings.Values.Remove(StartupLanguageSettingKey);
+        }
+        catch
+        {
+            // The database and reset marker still prevent identity data from returning.
+        }
+    }
+
     private static IReadOnlyDictionary<string, string> GetCurrentStrings()
     {
         lock (SyncRoot)
