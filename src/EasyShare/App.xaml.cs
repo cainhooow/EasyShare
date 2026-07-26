@@ -3,8 +3,6 @@ using Microsoft.UI.Xaml.Media;
 using EasyShare.Models;
 using EasyShare.Resources;
 using EasyShare.Services;
-using System.Runtime.InteropServices;
-using WinRT.Interop;
 using Windows.UI;
 
 namespace EasyShare;
@@ -55,13 +53,34 @@ public partial class App : Application
     {
         if (Current is App app)
         {
-            app._singleInstanceActivation?.Dispose();
+            DisposeBestEffort(
+                nameof(SingleInstanceActivationService),
+                app._singleInstanceActivation);
             app._singleInstanceActivation = null;
-            app._singleInstanceMutex?.Dispose();
+            DisposeBestEffort("single-instance mutex", app._singleInstanceMutex);
             app._singleInstanceMutex = null;
         }
 
-        Services?.Dispose();
+        DisposeBestEffort(nameof(AppServices), Services);
+    }
+
+    private static void DisposeBestEffort(string resourceName, IDisposable? resource)
+    {
+        if (resource is null)
+        {
+            return;
+        }
+
+        try
+        {
+            resource.Dispose();
+        }
+        catch (Exception ex)
+        {
+            StartupDiagnostics.Write(
+                $"Could not dispose {resourceName} during application shutdown.",
+                ex);
+        }
     }
 
     private bool TryClaimSingleInstance()
@@ -98,10 +117,9 @@ public partial class App : Application
                 });
             _singleInstanceActivation.Start();
 
-            if (StartMinimized)
+            if (StartMinimized && MainWindow is MainWindow mainWindow)
             {
-                var hwnd = WindowNative.GetWindowHandle(MainWindow);
-                ShowWindow(hwnd, 6);
+                mainWindow.MinimizeToTrayForStartup();
             }
 
             StartupDiagnostics.Write("OnLaunched completed.");
@@ -248,6 +266,4 @@ public partial class App : Application
         e.SetObserved();
     }
 
-    [DllImport("user32.dll")]
-    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 }

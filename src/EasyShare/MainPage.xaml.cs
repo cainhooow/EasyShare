@@ -4,7 +4,6 @@ using EasyShare.Models;
 using EasyShare.Resources;
 using EasyShare.Controls;
 using System.ComponentModel;
-using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -22,6 +21,8 @@ public sealed partial class MainPage : Page
 {
     private readonly BrowserSessionService _browserSessionService;
     private readonly SharePointBrowserContentService _browserContent;
+    private readonly GraphSharePointExplorerService _graphSharePointExplorer;
+    private readonly BrowserSharePointExplorerService _browserSharePointExplorer;
     private readonly UploadQueueService _uploadQueue;
     private readonly DispatcherTimer _browserKeepAliveTimer = new();
     private readonly DispatcherTimer _actionMessageTimer = new();
@@ -30,14 +31,24 @@ public sealed partial class MainPage : Page
     private int _localBusyDepth;
     private readonly OperationsCenterViewModel _operationsViewModel;
     private readonly SharePointExplorerViewModel _sharePointExplorerViewModel;
+    private readonly ContentAssistantViewModel _contentAssistantViewModel;
     private readonly SemaphoreSlim _sharePointExplorerInitializationLock = new(1, 1);
+    private readonly SemaphoreSlim _sharePointExplorerContextLock = new(1, 1);
     private readonly SemaphoreSlim _sharePointExplorerPinLock = new(1, 1);
     private readonly SemaphoreSlim _setupWizardDisplayGate = new(1, 1);
     private bool _sharePointExplorerInitialized;
+    private bool _contentAssistantInitialized;
     private readonly Dictionary<Guid, SyncJobState> _lastNotifiedStates = [];
     private bool? _lastDriveHealthy;
     private bool? _lastSessionHealthy;
     private bool _subscriptionsDisposed;
+    private string _browserSessionCacheScope = $"BROWSER-SESSION-{Guid.NewGuid():N}";
+    private string _graphSessionCacheScope = $"GRAPH-SESSION-{Guid.NewGuid():N}";
+    private string _contentAccountScope = ContentIdentityScope.Disconnected;
+    private bool? _configuredExplorerUsesBrowser;
+    private string _observedAuthenticationContext = string.Empty;
+    private long _contentIdentityGeneration;
+    private long _contentContextRevision;
 
     public MainPageViewModel ViewModel { get; }
 
@@ -47,6 +58,8 @@ public sealed partial class MainPage : Page
         _browserContent = services.BrowserContent;
         _uploadQueue = services.UploadQueue;
         _browserSessionService = services.BrowserSession;
+        _graphSharePointExplorer = services.GraphSharePointExplorer;
+        _browserSharePointExplorer = services.BrowserSharePointExplorer;
 
         ViewModel = new MainPageViewModel(
             services.Database,
@@ -56,12 +69,16 @@ public sealed partial class MainPage : Page
             services.GraphSharePoint,
             services.AppUpdate,
             services.EnterprisePolicy);
+        _observedAuthenticationContext = BuildAuthenticationContextKey();
 
         _operationsViewModel = new OperationsCenterViewModel(
             ViewModel.Routes,
             ViewModel.SyncJobs,
             services.HealthCenter);
-        _sharePointExplorerViewModel = new SharePointExplorerViewModel(services.GraphSharePointExplorer);
+        _sharePointExplorerViewModel = new SharePointExplorerViewModel(_graphSharePointExplorer);
+        _contentAssistantViewModel = new ContentAssistantViewModel(
+            services.ContentIndex,
+            services.BrowserContent);
 
         InitializeComponent();
         SetupWizard.ApplyRequested += SetupWizard_ApplyRequested;
@@ -70,8 +87,13 @@ public sealed partial class MainPage : Page
         SharePointExplorer.SignInRequested += SharePointExplorer_SignInRequested;
         SharePointExplorer.PinRequested += SharePointExplorer_PinRequested;
         SharePointExplorer.ManualRouteRequested += SharePointExplorer_ManualRouteRequested;
+        ContentAssistant.Initialize(_contentAssistantViewModel);
+        ContentAssistant.OpenRequested += ContentAssistant_OpenRequested;
         OperationsCenter.Initialize(_operationsViewModel);
         OperationsCenter.RetryRequested += OperationsCenter_RetryRequested;
+        OperationsCenter.ExportRequested += OperationsCenter_ExportRequested;
+        OperationsCenter.DetailsRequested += OperationsCenter_DetailsRequested;
+        OperationsCenter.ClearCompletedRequested += OperationsCenter_ClearCompletedRequested;
         OperationsCenter.ConflictResolutionRequested += OperationsCenter_ConflictResolutionRequested;
         OperationsCenter.HealthRefreshRequested += OperationsCenter_HealthRefreshRequested;
         OperationsCenter.SupportExportRequested += OperationsCenter_SupportExportRequested;
@@ -103,6 +125,10 @@ public sealed partial class MainPage : Page
         _subscriptionsDisposed = true;
         _browserKeepAliveTimer.Stop();
         _actionMessageTimer.Stop();
+        var browserVerification = Interlocked.Exchange(
+            ref _browserNavigationVerificationCancellation,
+            null);
+        browserVerification?.Cancel();
         ViewModel.PropertyChanged -= ViewModel_PropertyChanged;
         _uploadQueue.JobChanged -= UploadQueue_JobChanged;
         App.Services.Notifications.Activated -= Notifications_Activated;
@@ -111,7 +137,18 @@ public sealed partial class MainPage : Page
         SharePointExplorer.SignInRequested -= SharePointExplorer_SignInRequested;
         SharePointExplorer.PinRequested -= SharePointExplorer_PinRequested;
         SharePointExplorer.ManualRouteRequested -= SharePointExplorer_ManualRouteRequested;
+        ContentAssistant.OpenRequested -= ContentAssistant_OpenRequested;
+        OperationsCenter.RetryRequested -= OperationsCenter_RetryRequested;
+        OperationsCenter.ExportRequested -= OperationsCenter_ExportRequested;
+        OperationsCenter.DetailsRequested -= OperationsCenter_DetailsRequested;
+        OperationsCenter.ClearCompletedRequested -= OperationsCenter_ClearCompletedRequested;
+        OperationsCenter.ConflictResolutionRequested -= OperationsCenter_ConflictResolutionRequested;
+        OperationsCenter.HealthRefreshRequested -= OperationsCenter_HealthRefreshRequested;
+        OperationsCenter.SupportExportRequested -= OperationsCenter_SupportExportRequested;
+        OperationsCenter.OfflinePinRequested -= OperationsCenter_OfflinePinRequested;
+        OperationsCenter.OfflineRemoveRequested -= OperationsCenter_OfflineRemoveRequested;
         _sharePointExplorerViewModel.Dispose();
+        _contentAssistantViewModel.Dispose();
         _operationsViewModel.Dispose();
     }
 
@@ -132,16 +169,42 @@ public sealed partial class MainPage : Page
                     await ViewModel.LoadAsync();
                     ApplyAppearance();
                     _browserContent.ConfigureCache(TimeSpan.FromMinutes(ViewModel.CacheMinutes));
-                    _uploadQueue.Start();
                     await RestoreBrowserSessionOnStartupAsync();
+                    await RefreshSharePointExplorerContextAsync();
+#if DEBUG
+                    var disableUploadWorkerForVisualTest =
+                        DebugVisualTestIsolation.DisableUploadWorker;
+                    if (!disableUploadWorkerForVisualTest)
+                    {
+#endif
+                    _uploadQueue.Start();
+                    if (ViewModel.IsContentIdentityAvailable)
+                    {
+                        _uploadQueue.SignalSessionRestored();
+                    }
+#if DEBUG
+                    }
+                    else
+                    {
+                        StartupDiagnostics.Write(
+                            "Upload worker disabled by the isolated DEBUG visual-test environment.");
+                    }
+#endif
                     await RefreshOperationsHealthAsync();
+                    if (App.MainWindow is MainWindow mainWindow)
+                    {
+                        await mainWindow.RefreshTrayUploadStatusAsync();
+                    }
                 },
                 "LoadingStartupTitle",
                 "LoadingStartupMessage");
             ApplyStartupWindowState();
             ConfigureBrowserKeepAliveTimer();
             await ShowSetupWizardIfNeededAsync();
-            _ = CheckUpdatesOnStartupAsync();
+            if (!DebugVisualTestIsolation.IsActive)
+            {
+                _ = CheckUpdatesOnStartupAsync();
+            }
 
             StartupDiagnostics.Write("MainPage startup completed.");
         }
@@ -180,12 +243,103 @@ public sealed partial class MainPage : Page
             ApplyAppearance();
         }
 
+        if ((e.PropertyName == nameof(ViewModel.IsContentIdentityAvailable) &&
+             ViewModel.IsContentIdentityAvailable) ||
+            (e.PropertyName == nameof(ViewModel.IsBrowserSessionVerified) &&
+             ViewModel.IsBrowserSessionVerified) ||
+            (e.PropertyName == nameof(ViewModel.IsGraphAuthenticated) &&
+             ViewModel.IsGraphAuthenticated))
+        {
+            _uploadQueue.SignalSessionRestored();
+        }
+
         if (e.PropertyName is nameof(ViewModel.ClientId) or
             nameof(ViewModel.TenantId) or
             nameof(ViewModel.IsGraphAuthMode))
         {
-            _sharePointExplorerInitialized = false;
-            _sharePointExplorerViewModel.ResetForAuthenticationChange(requiresAuthentication: true);
+            var authenticationContext = BuildAuthenticationContextKey();
+            if (string.Equals(
+                    _observedAuthenticationContext,
+                    authenticationContext,
+                    StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _observedAuthenticationContext = authenticationContext;
+            if (ViewModel.IsBrowserSessionMode)
+            {
+                BeginBrowserIdentityTransition();
+            }
+            else
+            {
+                BeginGraphIdentityTransition();
+            }
+
+            _ = RefreshSharePointExplorerContextAsync();
+        }
+
+        if (e.PropertyName == nameof(ViewModel.ExplorerNavigationVisibility) &&
+            !ViewModel.IsExplorerAvailable &&
+            RootNavigation.SelectedItem is NavigationViewItem { Tag: "Explorer" })
+        {
+            SelectNavigationItem("Home");
+        }
+
+        if (e.PropertyName == nameof(ViewModel.AssistantNavigationVisibility) &&
+            !ViewModel.IsAssistantAvailable &&
+            RootNavigation.SelectedItem is NavigationViewItem { Tag: "Assistant" })
+        {
+            SelectNavigationItem("Home");
+        }
+    }
+
+    private string BuildAuthenticationContextKey() =>
+        $"{ViewModel.CurrentAuthenticationMode}|{ViewModel.ClientId.Trim()}|{ViewModel.TenantId.Trim()}";
+
+    private void BeginGraphIdentityTransition() =>
+        BeginContentIdentityTransition(usesBrowserSession: false, invalidateBrowserVerification: false);
+
+    private void BeginContentIdentityTransition(
+        bool usesBrowserSession,
+        bool invalidateBrowserVerification,
+        bool invalidatePublishedBrowserSession = true)
+    {
+        Interlocked.Increment(ref _contentIdentityGeneration);
+        Interlocked.Increment(ref _contentContextRevision);
+        _contentAssistantViewModel.CancelIndexing();
+        ViewModel.UpdateContentIdentityAvailability(false);
+        var transientScope = usesBrowserSession
+            ? _browserSessionCacheScope = $"BROWSER-SESSION-{Guid.NewGuid():N}"
+            : _graphSessionCacheScope = $"GRAPH-SESSION-{Guid.NewGuid():N}";
+        _browserContent.ConfigureAccountScope(transientScope);
+        _contentAccountScope = transientScope;
+        _configuredExplorerUsesBrowser = usesBrowserSession;
+        _contentAssistantViewModel.Configure(
+            transientScope,
+            ViewModel.CurrentAuthenticationMode,
+            []);
+        _contentAssistantInitialized = false;
+
+        var explorerService = usesBrowserSession
+            ? (ISharePointExplorerService)_browserSharePointExplorer
+            : _graphSharePointExplorer;
+        _sharePointExplorerViewModel.ConfigureService(explorerService, usesBrowserSession);
+        _sharePointExplorerViewModel.ResetForAuthenticationChange(requiresAuthentication: true);
+        _sharePointExplorerInitialized = false;
+
+        if (usesBrowserSession &&
+            invalidateBrowserVerification &&
+            ViewModel.IsBrowserSessionMode)
+        {
+            if (invalidatePublishedBrowserSession)
+            {
+                _browserSessionService.InvalidatePublishedSession();
+            }
+
+            ViewModel.UpdateBrowserSessionStatus(
+                new RouteTestResult(false, AppText.Get("BrowserRouteNeedLogin")),
+                hasVerifiedRoute: false);
         }
     }
 
@@ -220,26 +374,51 @@ public sealed partial class MainPage : Page
         }
 
         var hwnd = App.MainWindow is null ? IntPtr.Zero : WindowNative.GetWindowHandle(App.MainWindow);
+        BeginGraphIdentityTransition();
         await RunWithLoadingAsync(
             () => ViewModel.SignInAsync(hwnd),
             "LoadingBrowserTitle",
             "LoadingBrowserMessage");
-        await ReinitializeSharePointExplorerAsync();
+        await RefreshSharePointExplorerContextAsync();
+        if (ViewModel.IsExplorerAvailable)
+        {
+            await ReinitializeSharePointExplorerAsync();
+        }
     }
 
     private async void SignOutButton_Click(object sender, RoutedEventArgs e)
     {
+        if (ViewModel.IsGraphAuthMode)
+        {
+            BeginGraphIdentityTransition();
+        }
+        else
+        {
+            BeginBrowserIdentityTransition(invalidateBrowserVerification: true);
+        }
+
         await RunWithLoadingAsync(
             async () =>
             {
-                await ViewModel.SignOutAsync();
-                await ClearBrowserSessionAsync();
+                if (ViewModel.IsBrowserSessionMode)
+                {
+                    await ClearBrowserSessionAsync(beginIdentityTransition: false);
+                    await ViewModel.SignOutAsync();
+                }
+                else
+                {
+                    await ViewModel.SignOutAsync();
+                    await ClearBrowserSessionAsync(beginIdentityTransition: false);
+                }
             },
             "LoadingSaveTitle",
             "LoadingSaveMessage");
         _browserContent.ClearCache();
+        _browserSessionCacheScope = $"BROWSER-SESSION-{Guid.NewGuid():N}";
+        _graphSessionCacheScope = $"GRAPH-SESSION-{Guid.NewGuid():N}";
         _sharePointExplorerViewModel.ResetForAuthenticationChange(requiresAuthentication: true);
         _sharePointExplorerInitialized = false;
+        await RefreshSharePointExplorerContextAsync();
     }
 
     private async void SaveSettingsButton_Click(object sender, RoutedEventArgs e)
@@ -291,6 +470,16 @@ public sealed partial class MainPage : Page
     {
         if (ViewModel.IsGraphAuthMode)
         {
+            if (!ViewModel.IsExplorerAvailable)
+            {
+                SelectNavigationItem("Settings");
+                ShowActionMessage(
+                    AppText.Get("ExplorerAuthTitle"),
+                    AppText.Get("ExplorerAuthMessage"),
+                    InfoBarSeverity.Warning);
+                return;
+            }
+
             SelectNavigationItem("Explorer");
             await EnsureSharePointExplorerInitializedAsync();
             return;
@@ -322,6 +511,257 @@ public sealed partial class MainPage : Page
         }
     }
 
+    private async Task RefreshSharePointExplorerContextAsync()
+    {
+        var initializeExplorer = false;
+        var initializeAssistant = false;
+        var appliedContextRevision = 0L;
+        await _sharePointExplorerContextLock.WaitAsync();
+        try
+        {
+            var identityGeneration = Volatile.Read(ref _contentIdentityGeneration);
+            var authenticationContext = BuildAuthenticationContextKey();
+            var usesBrowserSession = ViewModel.IsBrowserSessionMode;
+            ISharePointExplorerService service = usesBrowserSession
+                ? _browserSharePointExplorer
+                : _graphSharePointExplorer;
+            var accountScope = ContentIdentityScope.Disconnected;
+            var hasPersistentContentIdentity = false;
+
+            if (usesBrowserSession && ViewModel.IsBrowserSessionVerified)
+            {
+                var resolvedScope = await _browserSessionService.GetAccountScopeAsync(ViewModel.Routes);
+                hasPersistentContentIdentity = ContentIdentityScope.IsPersistentIdentityScope(resolvedScope);
+                if (hasPersistentContentIdentity)
+                {
+                    accountScope = resolvedScope!;
+                }
+                else
+                {
+                    _browserSessionCacheScope = $"BROWSER-SESSION-{Guid.NewGuid():N}";
+                    accountScope = _browserSessionCacheScope;
+                }
+            }
+            else if (!usesBrowserSession && ViewModel.IsGraphAuthenticated)
+            {
+                var resolvedScope = await App.Services.Authentication.GetAccountScopeAsync();
+                hasPersistentContentIdentity = ContentIdentityScope.IsPersistentIdentityScope(resolvedScope);
+                if (hasPersistentContentIdentity)
+                {
+                    accountScope = resolvedScope!;
+                }
+                else
+                {
+                    _graphSessionCacheScope = $"GRAPH-SESSION-{Guid.NewGuid():N}";
+                    accountScope = _graphSessionCacheScope;
+                }
+            }
+
+            if (identityGeneration != Volatile.Read(ref _contentIdentityGeneration) ||
+                !string.Equals(
+                    authenticationContext,
+                    BuildAuthenticationContextKey(),
+                    StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            ViewModel.UpdateContentIdentityAvailability(hasPersistentContentIdentity);
+
+            var explorerContextChanged =
+                _configuredExplorerUsesBrowser != usesBrowserSession ||
+                !string.Equals(_contentAccountScope, accountScope, StringComparison.Ordinal);
+            _browserContent.ConfigureAccountScope(accountScope);
+            _contentAccountScope = accountScope;
+            _configuredExplorerUsesBrowser = usesBrowserSession;
+            _sharePointExplorerViewModel.ConfigureService(service, usesBrowserSession);
+            var assistantRoutes = ViewModel.Routes
+                .Where(route =>
+                    hasPersistentContentIdentity &&
+                    ViewModel.IsAssistantRouteAvailable(route) &&
+                    (!usesBrowserSession ||
+                     Uri.TryCreate(route.SharePointUrl, UriKind.Absolute, out var uri) &&
+                     SharePointCookieStore.IsRouteVerified(uri)))
+                .ToArray();
+            var assistantContextChanged = explorerContextChanged ||
+                                          HaveAssistantRoutesChanged(
+                                              _contentAssistantViewModel.Routes,
+                                              assistantRoutes);
+            if (assistantContextChanged)
+            {
+                _contentAssistantViewModel.Configure(
+                    accountScope,
+                    ViewModel.CurrentAuthenticationMode,
+                    assistantRoutes);
+            }
+            if (explorerContextChanged)
+            {
+                _sharePointExplorerInitialized = false;
+            }
+            if (assistantContextChanged)
+            {
+                _contentAssistantInitialized = false;
+            }
+
+            appliedContextRevision = Interlocked.Increment(ref _contentContextRevision);
+            initializeExplorer = ViewModel.IsExplorerAvailable &&
+                                 RootNavigation.SelectedItem is NavigationViewItem { Tag: "Explorer" } &&
+                                 (explorerContextChanged || !_sharePointExplorerInitialized);
+            initializeAssistant = ViewModel.IsAssistantAvailable &&
+                                  RootNavigation.SelectedItem is NavigationViewItem { Tag: "Assistant" } &&
+                                  (assistantContextChanged || !_contentAssistantInitialized);
+        }
+        finally
+        {
+            _sharePointExplorerContextLock.Release();
+        }
+
+        if (appliedContextRevision != Volatile.Read(ref _contentContextRevision))
+        {
+            return;
+        }
+
+        if (initializeExplorer && ViewModel.IsExplorerAvailable)
+        {
+            await EnsureSharePointExplorerInitializedAsync();
+        }
+
+        if (appliedContextRevision == Volatile.Read(ref _contentContextRevision) &&
+            initializeAssistant &&
+            ViewModel.IsAssistantAvailable)
+        {
+            await EnsureContentAssistantInitializedAsync();
+        }
+    }
+
+    private async Task EnsureContentAssistantInitializedAsync()
+    {
+        if (_contentAssistantInitialized)
+        {
+            await _contentAssistantViewModel.RefreshHistoryAsync();
+            return;
+        }
+
+        await ContentAssistant.InitializeAsync(_contentAssistantViewModel);
+        _contentAssistantInitialized = true;
+    }
+
+    private static bool HaveAssistantRoutesChanged(
+        IReadOnlyList<DriveRoute> configured,
+        IReadOnlyCollection<DriveRoute> current)
+    {
+        if (configured.Count != current.Count)
+        {
+            return true;
+        }
+
+        var currentById = current.ToDictionary(route => route.Id);
+        return configured.Any(route =>
+            !currentById.TryGetValue(route.Id, out var candidate) ||
+            !string.Equals(route.DisplayName, candidate.DisplayName, StringComparison.Ordinal) ||
+            !string.Equals(route.SharePointUrl, candidate.SharePointUrl, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(route.RemotePath, candidate.RemotePath, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(route.DriveId, candidate.DriveId, StringComparison.Ordinal) ||
+            !string.Equals(route.RootItemId, candidate.RootItemId, StringComparison.Ordinal));
+    }
+
+    private async void ContentAssistant_OpenRequested(ContentSearchResult result)
+    {
+        try
+        {
+            var route = ViewModel.Routes.FirstOrDefault(candidate => candidate.Id == result.RouteId);
+            if (route is null)
+            {
+                return;
+            }
+
+            if (!ViewModel.IsRouteAllowed(route.SharePointUrl))
+            {
+                ShowActionMessage(
+                    AppText.Get("PolicyRouteBlockedTitle"),
+                    AppText.Get("PolicyRouteBlockedMessage"),
+                    InfoBarSeverity.Warning);
+                return;
+            }
+
+            var mountedRoutePath = ViewModel.CanOpenInExplorer
+                ? App.Services.VirtualDrive.GetMountedRoutePath(route.Id)
+                : null;
+            if (!string.IsNullOrWhiteSpace(mountedRoutePath))
+            {
+                var path = result.RelativePath
+                    .Split('/', StringSplitOptions.RemoveEmptyEntries)
+                    .Aggregate(mountedRoutePath, Path.Combine);
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = path,
+                    UseShellExecute = true
+                });
+                return;
+            }
+
+            var target = ResolveContentResultUri(route, result);
+            if (target is null)
+            {
+                return;
+            }
+
+            if (!ViewModel.IsRouteAllowed(target.AbsoluteUri))
+            {
+                ShowActionMessage(
+                    AppText.Get("PolicyRouteBlockedTitle"),
+                    AppText.Get("PolicyRouteBlockedMessage"),
+                    InfoBarSeverity.Warning);
+                return;
+            }
+
+            if (ViewModel.IsBrowserSessionMode)
+            {
+                SelectNavigationItem("Browser");
+                await OpenBrowserSessionAsync(navigate: false);
+                await NavigateBrowserAsync(target.AbsoluteUri);
+                return;
+            }
+
+            await Launcher.LaunchUriAsync(target);
+        }
+        catch (Exception exception)
+        {
+            _contentAssistantViewModel.ReportExternalError(exception);
+        }
+    }
+
+    private static Uri? ResolveContentResultUri(DriveRoute route, ContentSearchResult result)
+    {
+        if (Uri.TryCreate(result.RemoteLocator, UriKind.Absolute, out var absolute) &&
+            absolute.Scheme == Uri.UriSchemeHttps &&
+            SharePointRouteParser.IsAllowedSharePointUri(absolute))
+        {
+            return absolute;
+        }
+
+        if (Uri.TryCreate(route.SharePointUrl, UriKind.Absolute, out var siteUri) &&
+            !string.IsNullOrWhiteSpace(result.RemoteLocator) &&
+            result.RemoteLocator.StartsWith("/", StringComparison.Ordinal) &&
+            Uri.TryCreate(new Uri(siteUri.GetLeftPart(UriPartial.Authority)), result.RemoteLocator, out var resolved) &&
+            SharePointRouteParser.IsAllowedSharePointUri(resolved))
+        {
+            return resolved;
+        }
+
+        var routePath = SharePointRouteParser.NormalizeRemotePath(route.RemotePath);
+        var relativePath = string.Join(
+            '/',
+            new[] { routePath, result.RelativePath }
+                .Where(value => !string.IsNullOrWhiteSpace(value) && value != "/")
+                .Select(value => value.Trim('/')));
+        var fallback = SharePointRouteParser.BuildDisplayUrl(route.SharePointUrl, relativePath);
+        return Uri.TryCreate(fallback, UriKind.Absolute, out var fallbackUri) &&
+               SharePointRouteParser.IsAllowedSharePointUri(fallbackUri)
+            ? fallbackUri
+            : null;
+    }
+
     private async Task ReinitializeSharePointExplorerAsync()
     {
         _sharePointExplorerViewModel.ResetForAuthenticationChange(requiresAuthentication: false);
@@ -342,7 +782,8 @@ public sealed partial class MainPage : Page
 
         if (ViewModel.IsBrowserSessionMode)
         {
-            await ViewModel.SetAuthenticationModeAsync(AuthenticationMode.MicrosoftGraph);
+            await OpenBrowserSessionAsync(navigate: true);
+            return;
         }
 
         if (!Guid.TryParse(ViewModel.ClientId, out _) && !await ShowClientIdDialogAsync())
@@ -351,8 +792,13 @@ public sealed partial class MainPage : Page
         }
 
         var hwnd = App.MainWindow is null ? IntPtr.Zero : WindowNative.GetWindowHandle(App.MainWindow);
+        BeginGraphIdentityTransition();
         await ViewModel.SignInAsync(hwnd);
-        await ReinitializeSharePointExplorerAsync();
+        await RefreshSharePointExplorerContextAsync();
+        if (ViewModel.IsExplorerAvailable)
+        {
+            await ReinitializeSharePointExplorerAsync();
+        }
     }
 
     private async Task SharePointExplorer_PinRequested(SharePointPinnedFolder folder)
@@ -373,6 +819,60 @@ public sealed partial class MainPage : Page
                 return;
             }
 
+            if (ViewModel.IsBrowserSessionMode)
+            {
+                if (!SharePointRouteParser.TryParse(folder.FolderWebUrl, out var browserFolder))
+                {
+                    throw new SharePointExplorerException(
+                        SharePointExplorerStatus.InvalidResponse,
+                        AppText.Get("InvalidLinkMessage"));
+                }
+
+                if (!Uri.TryCreate(folder.SiteWebUrl, UriKind.Absolute, out var sourceSiteUri) ||
+                    !Uri.TryCreate(browserFolder.SiteUrl, UriKind.Absolute, out var parsedSiteUri) ||
+                    !string.Equals(
+                        sourceSiteUri.DnsSafeHost,
+                        parsedSiteUri.DnsSafeHost,
+                        StringComparison.OrdinalIgnoreCase) ||
+                    !ViewModel.IsRouteAllowed(browserFolder.SiteUrl))
+                {
+                    ShowActionMessage(
+                        AppText.Get("PolicyRouteBlockedTitle"),
+                        AppText.Get("PolicyRouteBlockedMessage"),
+                        InfoBarSeverity.Warning);
+                    return;
+                }
+
+                var normalizedRemotePath = SharePointRouteParser.NormalizeRemotePath(browserFolder.RemotePath);
+                if (ViewModel.Routes.Any(route =>
+                        string.Equals(
+                            route.SharePointUrl.TrimEnd('/'),
+                            browserFolder.SiteUrl.TrimEnd('/'),
+                            StringComparison.OrdinalIgnoreCase) &&
+                        string.Equals(
+                            SharePointRouteParser.NormalizeRemotePath(route.RemotePath),
+                            normalizedRemotePath,
+                            StringComparison.OrdinalIgnoreCase)))
+                {
+                    ShowActionMessage(
+                        AppText.Get("ExplorerAlreadyPinnedTitle"),
+                        AppText.Get("ExplorerAlreadyPinnedMessage"),
+                        InfoBarSeverity.Informational);
+                    return;
+                }
+
+                await ViewModel.AddRouteAsync(
+                    folder.DisplayName,
+                    browserFolder.SiteUrl,
+                    normalizedRemotePath);
+                await RefreshSharePointExplorerContextAsync();
+                ShowActionMessage(
+                    AppText.Get("ExplorerPinnedTitle"),
+                    AppText.Format("ExplorerPinnedMessageFormat", folder.DisplayName),
+                    InfoBarSeverity.Success);
+                return;
+            }
+
             if (ViewModel.Routes.Any(route =>
                     route.HasGraphIdentity &&
                     string.Equals(route.DriveId, folder.DriveId, StringComparison.Ordinal) &&
@@ -386,6 +886,7 @@ public sealed partial class MainPage : Page
             }
 
             var route = await ViewModel.AddGraphRouteAsync(folder);
+            await RefreshSharePointExplorerContextAsync();
             ShowActionMessage(
                 AppText.Get("ExplorerPinnedTitle"),
                 AppText.Format("ExplorerPinnedMessageFormat", route.DisplayName),
@@ -426,38 +927,159 @@ public sealed partial class MainPage : Page
             return;
         }
 
-        var dialog = new ContentDialog
+        var route = ViewModel.Routes.FirstOrDefault(item => item.Id == routeId);
+        if (route is null)
         {
-            Title = AppText.Get("RemoveRouteDialogTitle"),
-            Content = AppText.Get("RemoveRouteDialogMessage"),
-            PrimaryButtonText = AppText.Get("ActionRemove"),
-            CloseButtonText = AppText.Get("CommonCancel"),
-            DefaultButton = ContentDialogButton.Close,
-            XamlRoot = XamlRoot
-        };
+            return;
+        }
 
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        var routeRemovalMarked = false;
+        try
         {
-            var route = ViewModel.Routes.FirstOrDefault(item => item.Id == routeId);
-            if (route is not null)
+            var activeCount = await _uploadQueue.GetActiveJobCountAsync(routeId);
+            var preservePendingCopies = false;
+            if (activeCount > 0)
             {
-                _browserContent.InvalidateRoute(route);
+                var protectedDialog = new ContentDialog
+                {
+                    Title = AppText.Get("RemoveRouteUploadsTitle"),
+                    Content = AppText.Format(
+                        "RemoveRouteUploadsMessageFormat",
+                        route.DisplayName,
+                        activeCount),
+                    PrimaryButtonText = AppText.Get("ActionFinishUploadsFirst"),
+                    SecondaryButtonText = AppText.Get("ActionRemovePreserveCopies"),
+                    CloseButtonText = AppText.Get("CommonCancel"),
+                    DefaultButton = ContentDialogButton.Primary,
+                    XamlRoot = XamlRoot
+                };
+                var protectedResult = await protectedDialog.ShowAsync();
+                if (protectedResult == ContentDialogResult.Primary)
+                {
+                    SelectNavigationItem("Sync");
+                    OperationsCenter.SelectTransfers();
+                    return;
+                }
+
+                if (protectedResult != ContentDialogResult.Secondary)
+                {
+                    return;
+                }
+
+                var strongConfirmation = new ContentDialog
+                {
+                    Title = AppText.Get("RemoveRouteStrongTitle"),
+                    Content = AppText.Format("RemoveRouteStrongMessageFormat", route.DisplayName),
+                    PrimaryButtonText = AppText.Get("ActionRemoveAnyway"),
+                    CloseButtonText = AppText.Get("CommonCancel"),
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = XamlRoot
+                };
+                if (await strongConfirmation.ShowAsync() != ContentDialogResult.Primary)
+                {
+                    return;
+                }
+
+                preservePendingCopies = true;
+            }
+            else
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = AppText.Get("RemoveRouteDialogTitle"),
+                    Content = AppText.Get("RemoveRouteDialogMessage"),
+                    PrimaryButtonText = AppText.Get("ActionRemove"),
+                    CloseButtonText = AppText.Get("CommonCancel"),
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = XamlRoot
+                };
+                if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+                {
+                    return;
+                }
             }
 
+            _browserContent.InvalidateRoute(route);
             await RunWithLoadingAsync(
-                () => ViewModel.RemoveRouteAsync(routeId),
+                async () =>
+                {
+                    if (preservePendingCopies)
+                    {
+                        routeRemovalMarked = true;
+                        await _uploadQueue.MarkRouteRemovedAsync(routeId);
+                    }
+
+                    await App.Services.ContentIndex.RemoveRouteFromAllScopesAsync(routeId);
+                    await ViewModel.RemoveRouteAsync(routeId);
+                },
                 "LoadingSaveTitle",
                 "LoadingSaveMessage");
+            await RefreshSharePointExplorerContextAsync();
             ShowActionMessage(AppText.Get("RouteRemovedTitle"), AppText.Get("RouteRemovedMessage"), InfoBarSeverity.Success);
         }
+        catch (Exception ex)
+        {
+            if (routeRemovalMarked &&
+                ViewModel.Routes.Any(item => item.Id == routeId))
+            {
+                try
+                {
+                    await _uploadQueue.RestoreRouteAdmissionAsync(routeId);
+                }
+                catch (Exception restoreException)
+                {
+                    StartupDiagnostics.Write(
+                        "Restoring upload admission after route removal rollback failed.",
+                        restoreException);
+                }
+            }
+
+            StartupDiagnostics.Write("Removing a pinned route safely failed.", ex);
+            ShowActionMessage(
+                AppText.Get("OperationFailedTitle"),
+                AppText.Get("RemoveRouteFailedMessage"),
+                InfoBarSeverity.Error);
+        }
+    }
+
+    private void OpenUploadsButton_Click(object sender, RoutedEventArgs e)
+    {
+        SelectNavigationItem("Sync");
+        OperationsCenter.SelectTransfers();
     }
 
     private void RootNavigation_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
         var tag = (args.SelectedItem as NavigationViewItem)?.Tag?.ToString();
+        if (tag == "Explorer" && !ViewModel.IsExplorerAvailable)
+        {
+            SelectNavigationItem("Home");
+            return;
+        }
+
+        if (tag == "Assistant" && !ViewModel.IsAssistantAvailable)
+        {
+            SelectNavigationItem("Home");
+            return;
+        }
+
+        if (tag is "Explorer" or "Assistant" && ViewModel.IsBrowserSessionMode)
+        {
+            if (_allowBrowserContentNavigationOnce)
+            {
+                _allowBrowserContentNavigationOnce = false;
+            }
+            else
+            {
+                SelectNavigationItem("Home");
+                _ = VerifyAndOpenBrowserContentAsync(tag);
+                return;
+            }
+        }
 
         HomeView.Visibility = tag == "Home" ? Visibility.Visible : Visibility.Collapsed;
-        SharePointExplorer.Visibility = tag == "Explorer" ? Visibility.Visible : Visibility.Collapsed;
+        ExplorerView.Visibility = tag == "Explorer" ? Visibility.Visible : Visibility.Collapsed;
+        ContentAssistant.Visibility = tag == "Assistant" ? Visibility.Visible : Visibility.Collapsed;
         RoutesView.Visibility = tag == "Routes" ? Visibility.Visible : Visibility.Collapsed;
         OperationsCenter.Visibility = tag == "Sync" ? Visibility.Visible : Visibility.Collapsed;
         BrowserView.Visibility = tag == "Browser" ? Visibility.Visible : Visibility.Collapsed;
@@ -482,15 +1104,51 @@ public sealed partial class MainPage : Page
         {
             _ = EnsureSharePointExplorerInitializedAsync();
         }
+
+        if (tag == "Assistant")
+        {
+            _ = EnsureContentAssistantInitializedAsync();
+        }
     }
 
-    private async Task<bool> ConfirmResetAsync()
+    private async Task VerifyAndOpenBrowserContentAsync(string tag)
     {
-        var confirmationBox = new TextBox
+        if (Interlocked.Exchange(ref _browserContentNavigationPending, 1) != 0)
         {
-            Header = AppText.Get("ResetDialogConfirmationHeader"),
-            PlaceholderText = AppText.Get("ResetDialogConfirmationText")
-        };
+            return;
+        }
+
+        try
+        {
+            BeginBrowserIdentityTransition(invalidateBrowserVerification: true);
+            await VerifyBrowserSessionAsync(
+                showMessage: false,
+                restoreFromWebView: true);
+
+            var canOpen = tag switch
+            {
+                "Explorer" => ViewModel.IsExplorerAvailable,
+                "Assistant" => ViewModel.IsAssistantAvailable,
+                _ => false
+            };
+            if (canOpen)
+            {
+                _allowBrowserContentNavigationOnce = true;
+                SelectNavigationItem(tag);
+            }
+        }
+        catch (Exception exception)
+        {
+            StartupDiagnostics.Write("Browser content identity verification failed.", exception);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _browserContentNavigationPending, 0);
+        }
+    }
+
+    private async Task<bool> ConfirmResetAsync(LocalDataInventory inventory)
+    {
         var info = new InfoBar
         {
             IsOpen = true,
@@ -501,7 +1159,32 @@ public sealed partial class MainPage : Page
         };
         var form = new StackPanel { Spacing = 12, MaxWidth = 620 };
         form.Children.Add(info);
-        form.Children.Add(confirmationBox);
+        form.Children.Add(new TextBlock
+        {
+            Text = AppText.Format(
+                "ResetDialogInventoryFormat",
+                inventory.ItemCount,
+                FormatResetBytes(inventory.Bytes)),
+            TextWrapping = TextWrapping.Wrap,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        });
+        foreach (var category in inventory.Categories)
+        {
+            form.Children.Add(new TextBlock
+            {
+                Text = AppText.Format(
+                    "ResetDialogCategoryFormat",
+                    category.Name,
+                    category.ItemCount,
+                    FormatResetBytes(category.Bytes)),
+                TextWrapping = TextWrapping.Wrap
+            });
+        }
+        form.Children.Add(new TextBlock
+        {
+            Text = AppText.Get("ResetDialogAccessibleConfirmation"),
+            TextWrapping = TextWrapping.Wrap
+        });
 
         var dialog = new ContentDialog
         {
@@ -513,19 +1196,21 @@ public sealed partial class MainPage : Page
             XamlRoot = XamlRoot
         };
 
-        dialog.PrimaryButtonClick += (_, args) =>
-        {
-            if (!string.Equals(
-                    confirmationBox.Text.Trim(),
-                    AppText.Get("ResetDialogConfirmationText"),
-                    StringComparison.Ordinal))
-            {
-                args.Cancel = true;
-                confirmationBox.Focus(FocusState.Programmatic);
-            }
-        };
-
         return await dialog.ShowAsync() == ContentDialogResult.Primary;
+    }
+
+    private static string FormatResetBytes(long bytes)
+    {
+        string[] suffixes = ["B", "KB", "MB", "GB"];
+        double value = Math.Max(0, bytes);
+        var index = 0;
+        while (value >= 1024 && index < suffixes.Length - 1)
+        {
+            value /= 1024;
+            index++;
+        }
+
+        return index == 0 ? $"{value:0} {suffixes[index]}" : $"{value:0.0} {suffixes[index]}";
     }
 
     private async Task ShowSetupWizardIfNeededAsync()
@@ -628,6 +1313,7 @@ public sealed partial class MainPage : Page
             var hwnd = App.MainWindow is null
                 ? IntPtr.Zero
                 : WindowNative.GetWindowHandle(App.MainWindow);
+            BeginGraphIdentityTransition();
             await RunWithLoadingAsync(
                 () => ViewModel.SignInAsync(hwnd),
                 "LoadingBrowserTitle",
@@ -862,6 +1548,7 @@ public sealed partial class MainPage : Page
                 () => ViewModel.AddRouteAsync(nameBox.Text, parsed.SiteUrl, parsed.RemotePath),
                 "LoadingSaveTitle",
                 "LoadingSaveMessage");
+            await RefreshSharePointExplorerContextAsync();
             ShowActionMessage(AppText.Get("RoutePinnedTitle"), AppText.Get("RoutePinnedMessage"), InfoBarSeverity.Success);
             return;
         }
@@ -959,6 +1646,12 @@ public sealed partial class MainPage : Page
 
     private async void OperationsCenter_RetryRequested(Guid jobId)
     {
+        var job = ViewModel.SyncJobs.FirstOrDefault(item => item.Id == jobId);
+        if (job is null || !job.CanRetry)
+        {
+            return;
+        }
+
         try
         {
             await _uploadQueue.RetryAsync(jobId);
@@ -966,7 +1659,178 @@ public sealed partial class MainPage : Page
         catch (Exception ex)
         {
             StartupDiagnostics.Write("Retrying an upload failed.", ex);
-            ShowActionMessage(AppText.Get("OperationFailedTitle"), ex.Message, InfoBarSeverity.Error);
+            ShowActionMessage(
+                AppText.Get("OperationFailedTitle"),
+                string.IsNullOrWhiteSpace(job.RecommendedActionText)
+                    ? AppText.Get("OperationFailedMessage")
+                    : job.RecommendedActionText,
+                InfoBarSeverity.Error);
+        }
+    }
+
+    private async void OperationsCenter_ExportRequested(Guid jobId)
+    {
+        var job = ViewModel.SyncJobs.FirstOrDefault(item => item.Id == jobId);
+        if (job is null || !job.CanExport)
+        {
+            return;
+        }
+
+        try
+        {
+            var destination = await PickNewFileAsync(
+                job.FileName,
+                AppText.Get("UploadExportTypeLabel"));
+            if (destination is null)
+            {
+                return;
+            }
+
+            SyncConflictActionResult? result = null;
+            await RunWithLoadingAsync(
+                async () =>
+                {
+                    result = await _uploadQueue.ExportLocalPayloadAsync(jobId, destination);
+                },
+                "LoadingSaveTitle",
+                "LoadingSaveMessage");
+
+            if (result?.Succeeded == true)
+            {
+                ShowActionMessage(
+                    AppText.Get("ConflictExportedTitle"),
+                    AppText.Format("UploadExportedMessageFormat", job.FileName),
+                    InfoBarSeverity.Success);
+                return;
+            }
+
+            ShowActionMessage(
+                AppText.Get("OperationFailedTitle"),
+                result?.Error ?? job.RecommendedActionText,
+                InfoBarSeverity.Error);
+        }
+        catch (Exception ex)
+        {
+            StartupDiagnostics.Write("Exporting a recoverable upload payload failed.", ex);
+            ShowActionMessage(
+                AppText.Get("OperationFailedTitle"),
+                job.RecommendedActionText,
+                InfoBarSeverity.Error);
+        }
+    }
+
+    private async void OperationsCenter_DetailsRequested(Guid jobId)
+    {
+        var job = ViewModel.SyncJobs.FirstOrDefault(item => item.Id == jobId);
+        if (job is null)
+        {
+            return;
+        }
+
+        var content = new StackPanel
+        {
+            Spacing = 10
+        };
+        content.Children.Add(new TextBlock
+        {
+            Text = AppText.Get("UploadDetailsStateLabel"),
+            Style = Application.Current.Resources["BodyStrongTextBlockStyle"] as Style
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = string.Join(
+                Environment.NewLine,
+                new[] { job.StateText, job.ProgressText, job.NextAttemptText, job.FailureSummary }
+                    .Where(value => !string.IsNullOrWhiteSpace(value))),
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        if (!string.IsNullOrWhiteSpace(job.RecommendedActionText))
+        {
+            content.Children.Add(new TextBlock
+            {
+                Text = AppText.Get("UploadDetailsRecommendationLabel"),
+                Style = Application.Current.Resources["BodyStrongTextBlockStyle"] as Style
+            });
+            content.Children.Add(new TextBlock
+            {
+                Text = job.RecommendedActionText,
+                TextWrapping = TextWrapping.Wrap
+            });
+        }
+
+        if (!string.IsNullOrWhiteSpace(job.TechnicalDetails))
+        {
+            content.Children.Add(new Expander
+            {
+                Header = AppText.Get("UploadDetailsTechnicalHeader"),
+                IsExpanded = false,
+                Content = new TextBlock
+                {
+                    Text = job.TechnicalDetails,
+                    FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
+                    IsTextSelectionEnabled = true,
+                    TextWrapping = TextWrapping.Wrap
+                }
+            });
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = AppText.Format("UploadDetailsTitleFormat", job.FileName),
+            Content = content,
+            CloseButtonText = AppText.Get("CommonOk"),
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot
+        };
+        await dialog.ShowAsync();
+    }
+
+    private async void OperationsCenter_ClearCompletedRequested()
+    {
+        var completedCount = ViewModel.CompletedUploadCount;
+        if (completedCount == 0)
+        {
+            return;
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = AppText.Get("ClearCompletedDialogTitle"),
+            Content = AppText.Format("ClearCompletedDialogMessageFormat", completedCount),
+            PrimaryButtonText = AppText.Get("ActionClearCompleted"),
+            CloseButtonText = AppText.Get("CommonCancel"),
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        try
+        {
+            var removedCount = 0;
+            await RunWithLoadingAsync(
+                async () =>
+                {
+                    removedCount = await _uploadQueue.ClearCompletedAsync();
+                },
+                "LoadingSaveTitle",
+                "LoadingSaveMessage");
+            ViewModel.RemoveCompletedSyncJobs();
+            ShowActionMessage(
+                AppText.Get("ClearCompletedDoneTitle"),
+                AppText.Format("ClearCompletedDoneMessageFormat", removedCount),
+                InfoBarSeverity.Success);
+        }
+        catch (Exception ex)
+        {
+            StartupDiagnostics.Write("Clearing completed uploads failed.", ex);
+            ShowActionMessage(
+                AppText.Get("OperationFailedTitle"),
+                AppText.Get("OperationFailedMessage"),
+                InfoBarSeverity.Error);
         }
     }
 
@@ -1068,7 +1932,10 @@ public sealed partial class MainPage : Page
         catch (Exception ex)
         {
             StartupDiagnostics.Write("Resolving a synchronization conflict failed.", ex);
-            ShowActionMessage(AppText.Get("OperationFailedTitle"), ex.Message, InfoBarSeverity.Error);
+            ShowActionMessage(
+                AppText.Get("OperationFailedTitle"),
+                AppText.Get("OperationFailedMessage"),
+                InfoBarSeverity.Error);
         }
     }
 
@@ -1231,6 +2098,10 @@ public sealed partial class MainPage : Page
 
             switch (activation.Destination)
             {
+                case "Transfers":
+                    SelectNavigationItem("Sync");
+                    OperationsCenter.SelectTransfers();
+                    break;
                 case "Conflicts":
                     SelectNavigationItem("Sync");
                     OperationsCenter.SelectConflicts();
@@ -1258,6 +2129,8 @@ public sealed partial class MainPage : Page
         var sessionAvailable = ViewModel.IsBrowserSessionMode
             ? ViewModel.Routes.Count == 0 || ViewModel.Routes.Any(route =>
                 Uri.TryCreate(route.SharePointUrl, UriKind.Absolute, out var uri) &&
+                ViewModel.IsRouteAllowed(route.SharePointUrl) &&
+                SharePointCookieStore.IsRouteVerified(uri) &&
                 SharePointCookieStore.TryGetCookieHeader(uri, out _))
             : ViewModel.ConnectionSeverity == InfoBarSeverity.Success;
 
@@ -1321,7 +2194,7 @@ public sealed partial class MainPage : Page
                     "upload-failed",
                     AppText.Get("NotificationUploadFailedTitle"),
                     AppText.Get("NotificationUploadFailedMessage"),
-                    "Conflicts",
+                    "Transfers",
                     job.Id.ToString("N"));
                 break;
             case SyncJobState.Completed when ViewModel.NotifyUploadCompleted:
@@ -1431,6 +2304,7 @@ public sealed partial class MainPage : Page
             PlaceCard(AccountCard, row: 0, column: 0, columnSpan: 1);
             PlaceCard(VirtualRootCard, row: 0, column: 1, columnSpan: 1);
             PlaceCard(RoutesCountCard, row: 0, column: 2, columnSpan: 1);
+            PlaceCard(UploadsStatusCard, row: 1, column: 0, columnSpan: 3);
             return;
         }
 
@@ -1443,6 +2317,7 @@ public sealed partial class MainPage : Page
             PlaceCard(AccountCard, row: 0, column: 0, columnSpan: 1);
             PlaceCard(VirtualRootCard, row: 0, column: 1, columnSpan: 1);
             PlaceCard(RoutesCountCard, row: 1, column: 0, columnSpan: 2);
+            PlaceCard(UploadsStatusCard, row: 2, column: 0, columnSpan: 2);
             return;
         }
 
@@ -1453,6 +2328,7 @@ public sealed partial class MainPage : Page
         PlaceCard(AccountCard, row: 0, column: 0, columnSpan: 1);
         PlaceCard(VirtualRootCard, row: 1, column: 0, columnSpan: 1);
         PlaceCard(RoutesCountCard, row: 2, column: 0, columnSpan: 1);
+        PlaceCard(UploadsStatusCard, row: 3, column: 0, columnSpan: 1);
     }
 
     private void ApplyResponsivePageLayouts(double width)
@@ -1573,14 +2449,9 @@ public sealed partial class MainPage : Page
             return;
         }
 
-        var hwnd = WindowNative.GetWindowHandle(App.MainWindow);
-        ShowWindow(hwnd, 6);
         if (App.MainWindow is MainWindow mainWindow)
         {
-            mainWindow.HideToTray();
+            mainWindow.MinimizeToTrayForStartup();
         }
     }
-
-    [DllImport("user32.dll")]
-    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 }

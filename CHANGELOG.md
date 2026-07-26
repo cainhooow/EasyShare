@@ -2,6 +2,47 @@
 
 Todas as mudanças relevantes do EasyShare devem ser registradas neste arquivo antes da publicação de uma release.
 
+## [Não publicado]
+
+## [1.0.27.0] - 2026-07-26
+
+### Fila, recuperação e saída segura
+
+- Mostra estados, contadores, progresso real ou indeterminado, próxima tentativa e ações recomendadas de forma coerente no Explorer, Início, Envios e bandeja.
+- Só informa 100% e disponibilidade no SharePoint depois da confirmação remota, retomando operações após rede ou sessão voltar.
+- Oferece recuperação após falhas, cópia local, detalhes técnicos recolhidos e limpeza segura do histórico concluído.
+- Protege payloads ao remover pastas, fechar a janela ou encerrar o aplicativo e preserva a fila após crash ou reabertura.
+
+### Exclusão no SharePoint
+
+- Persiste a intenção de exclusão antes de confirmar sucesso ao Windows e mantém um tombstone enquanto a operação remota estiver pendente.
+- Executa exclusões Graph e REST com confirmação, retentativa e mensagens amigáveis para falhas de permissão, rede ou servidor.
+- Impede que um upload tardio ou de resultado ambíguo faça o arquivo reaparecer depois da exclusão.
+- Invalida caches de arquivo, diretório, conteúdo offline e índice em todos os escopos da conta após a confirmação remota.
+
+### Privacidade e reset local
+
+- Faz inventário e apaga sessão, preferências, rotas, banco, fila e payloads, cache offline, índice, chaves, perfil WebView2 e diagnósticos sob controle do aplicativo.
+- Suspende uploads, downloads, indexação e a unidade virtual durante a exclusão, impedindo que operações recriem dados no meio do processo.
+- Retoma exclusões interrompidas com um marcador externo, cobre o `LocalState` legado de instalações em outra unidade e mantém a operação idempotente.
+- Remove conteúdo SQLite das páginas livres com `secure_delete` e `VACUUM`.
+- Recria somente o esquema vazio necessário para continuar no mesmo processo, sem restaurar conta, chaves, payloads, caches ou histórico apagados.
+
+### Explorer e autenticação
+
+- Permite navegar, no Explorer nativo, as rotas conhecidas autenticadas pela sessão integrada WebView2, sem converter cookies em token Graph ou criar identidades Graph artificiais.
+- Mantém a descoberta ampla de sites e bibliotecas no provedor Microsoft Graph e comunica a diferença entre os dois modos.
+- Oculta o Explorer e a busca quando o modo atual não possui autenticação válida, evitando o redirecionamento silencioso de Browser para Client ID.
+- Revalida a identidade da WebView após navegações de autenticação e antes de abrir Explorer/Busca, bloqueando imediatamente caches e rotas da conta anterior.
+- Separa o cache persistido de diretórios por identidade e descarta cache legado sem proprietário durante a migração.
+
+### Busca inteligente
+
+- Adiciona índice SQLite local de arquivos e pastas das rotas fixadas, com busca por nome/caminho sem diferença de caixa ou acentos.
+- Adiciona ranking por correspondência textual, frequência e recência, além do histórico de itens mais acessados.
+- Inclui varredura cancelável e defensiva, indexação passiva durante a navegação e isolamento de resultados por conta/sessão.
+- Adiciona a tela WinUI “Busca inteligente” com pesquisa ao digitar, estados acessíveis e abertura de resultados.
+
 ## [1.0.26.0] - 2026-07-14
 
 ### Hotfix do instalador

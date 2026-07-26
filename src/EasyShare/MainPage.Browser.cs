@@ -13,6 +13,12 @@ namespace EasyShare;
 public sealed partial class MainPage
 {
     private readonly HashSet<string> _approvedFederatedBrowserHosts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly SemaphoreSlim _browserSessionVerificationGate = new(1, 1);
+    private CancellationTokenSource? _browserNavigationVerificationCancellation;
+    private int _browserContentNavigationPending;
+    private int _browserAuthenticationTransitionInProgress;
+    private int _browserSessionClearInProgress;
+    private bool _allowBrowserContentNavigationOnce;
     private bool _browserSecurityConfigured;
 
     private async void BrowserKeepAliveTimer_Tick(object? sender, object e)
@@ -22,7 +28,14 @@ public sealed partial class MainPage
             return;
         }
 
-        await VerifyBrowserSessionAsync(showMessage: false);
+        try
+        {
+            await VerifyBrowserSessionAsync(showMessage: false);
+        }
+        catch (Exception exception)
+        {
+            StartupDiagnostics.Write("Browser keep-alive failed.", exception);
+        }
     }
 
     private async void BrowserGoButton_Click(object sender, RoutedEventArgs e) =>
@@ -88,7 +101,7 @@ public sealed partial class MainPage
 
     private async void ClearBrowserSessionButton_Click(object sender, RoutedEventArgs e) =>
         await RunWithLoadingAsync(
-            ClearBrowserSessionAsync,
+            () => ClearBrowserSessionAsync(),
             "LoadingSaveTitle",
             "LoadingSaveMessage");
 
@@ -126,32 +139,118 @@ public sealed partial class MainPage
 
     private async void ResetAppButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!await ConfirmResetAsync())
+        LocalDataInventory inventory;
+        try
+        {
+            inventory = await App.Services.LocalDataReset.InventoryAsync();
+        }
+        catch (Exception exception)
+        {
+            StartupDiagnostics.Write("Local data inventory failed.", exception);
+            ShowActionMessage(
+                AppText.Get("ResetFailedTitle"),
+                AppText.Format("ResetInventoryFailedMessage", exception.Message),
+                InfoBarSeverity.Error);
+            return;
+        }
+
+        if (!await ConfirmResetAsync(inventory))
         {
             return;
         }
 
-        if (_browserInitialized)
+        try
         {
-            await _browserSessionService.ClearSessionAsync(SessionWebView.CoreWebView2);
+            App.Services.LocalDataReset.MarkPendingReset();
+            _browserKeepAliveTimer.Stop();
+            _contentAssistantViewModel.CancelIndexing();
+            App.Services.VirtualDrive.StopForReset();
+            await using var queueSuspension = await _uploadQueue.SuspendForResetAsync();
+            await using var offlineSuspension = await App.Services.OfflineCache.SuspendForResetAsync();
+
+            if (ViewModel.IsBrowserSessionMode)
+            {
+                BeginBrowserIdentityTransition(invalidateBrowserVerification: true);
+            }
+            else
+            {
+                BeginGraphIdentityTransition();
+            }
+
+            BeginBrowserSessionClearBarrier();
+            await _browserSessionVerificationGate.WaitAsync();
+            var browserProfileClearedByApi = false;
+            try
+            {
+                if (_browserInitialized)
+                {
+                    browserProfileClearedByApi = await _browserSessionService.ClearSessionAsync(
+                        SessionWebView.CoreWebView2);
+                }
+                else
+                {
+                    _browserSessionService.ClearStoredSession();
+                }
+            }
+            finally
+            {
+                _browserSessionVerificationGate.Release();
+                EndBrowserSessionClearBarrier();
+            }
+
+            _approvedFederatedBrowserHosts.Clear();
+            _browserContent.ClearCache();
+            _browserSessionCacheScope = $"BROWSER-SESSION-{Guid.NewGuid():N}";
+            _graphSessionCacheScope = $"GRAPH-SESSION-{Guid.NewGuid():N}";
+
+            LocalDataResetResult? resetResult = null;
+            await RunWithLoadingAsync(
+                async () =>
+                {
+                    await App.Services.ContentIndex.ClearAllAsync();
+                    await ViewModel.ResetAppAsync();
+                    AppText.ClearStartupLanguageCode();
+                    App.Services.Database.ReleasePooledConnectionsForLocalDataReset();
+                    resetResult = await App.Services.LocalDataReset.ResetAsync(
+                        browserProfileClearedByApi
+                            ? [_browserSessionService.ProfilePath]
+                            : null);
+                    if (resetResult.Succeeded)
+                    {
+                        await App.Services.RehydrateAfterLocalDataResetAsync();
+                    }
+                },
+                "LoadingResetTitle",
+                "LoadingResetMessage");
+
+            if (resetResult?.Succeeded != true)
+            {
+                var failure = resetResult?.Failures.FirstOrDefault();
+                var message = failure is null
+                    ? AppText.Get("ResetPartialFailureMessage")
+                    : AppText.Format("ResetPartialFailureItemFormat", failure.Path, failure.Reason);
+                ShowActionMessage(AppText.Get("ResetPartialFailureTitle"), message, InfoBarSeverity.Error);
+                ResetAppButton.Focus(FocusState.Programmatic);
+                return;
+            }
+
+            _sharePointExplorerViewModel.ResetForAuthenticationChange(requiresAuthentication: true);
+            ShowActionMessage(
+                AppText.Get("ResetDoneTitle"),
+                AppText.Format("ResetDoneSummaryFormat", inventory.ItemCount, FormatResetBytes(inventory.Bytes)),
+                InfoBarSeverity.Success);
+            SelectNavigationItem("Home");
+            await ShowSetupWizardIfNeededAsync();
         }
-        else
+        catch (Exception exception)
         {
-            _browserSessionService.ClearStoredSession();
+            StartupDiagnostics.Write("Deleting all local application data failed.", exception);
+            ShowActionMessage(
+                AppText.Get("ResetFailedTitle"),
+                AppText.Format("ResetFailedMessage", exception.Message),
+                InfoBarSeverity.Error);
+            ResetAppButton.Focus(FocusState.Programmatic);
         }
-
-        _approvedFederatedBrowserHosts.Clear();
-
-        _browserContent.ClearCache();
-
-        await RunWithLoadingAsync(
-            ViewModel.ResetAppAsync,
-            "LoadingResetTitle",
-            "LoadingResetMessage");
-        ConfigureBrowserKeepAliveTimer();
-        ShowActionMessage(AppText.Get("ResetDoneTitle"), AppText.Get("ResetDoneMessage"), InfoBarSeverity.Success);
-        SelectNavigationItem("Home");
-        await ShowSetupWizardIfNeededAsync();
     }
 
     private async void BrowserAddressBox_KeyDown(object sender, KeyRoutedEventArgs e)
@@ -172,6 +271,31 @@ public sealed partial class MainPage
         {
             BrowserAddressBox.Text = sender.Source.ToString();
         }
+
+        var completedSource = sender.Source;
+        var completedAuthenticationTransition = completedSource is not null &&
+                                                IsAuthenticationTransitionUri(
+                                                    completedSource.AbsoluteUri);
+        if (args.IsSuccess &&
+            ViewModel.IsBrowserSessionMode &&
+            completedSource is not null &&
+            WebViewOriginPolicy.IsTrustedMicrosoftUri(completedSource) &&
+            !completedAuthenticationTransition)
+        {
+            Interlocked.Exchange(ref _browserAuthenticationTransitionInProgress, 0);
+        }
+
+        if (args.IsSuccess &&
+            ViewModel.IsBrowserSessionMode &&
+            Volatile.Read(ref _browserSessionClearInProgress) == 0 &&
+            Volatile.Read(ref _browserAuthenticationTransitionInProgress) == 0 &&
+            ViewModel.Routes.Count > 0 &&
+            completedSource is not null &&
+            !completedAuthenticationTransition &&
+            SharePointRouteParser.IsAllowedSharePointUri(completedSource))
+        {
+            ScheduleBrowserSessionVerification(completedSource);
+        }
     }
 
     private void SessionWebView_NavigationStarting(
@@ -188,6 +312,13 @@ public sealed partial class MainPage
                 args.IsUserInitiated && !args.IsRedirected,
                 out _))
         {
+            if (ViewModel.IsBrowserSessionMode && IsAuthenticationTransitionUri(args.Uri))
+            {
+                Interlocked.Exchange(ref _browserAuthenticationTransitionInProgress, 1);
+                CancelPendingBrowserSessionVerification();
+                BeginBrowserIdentityTransition(invalidateBrowserVerification: true);
+            }
+
             return;
         }
 
@@ -196,6 +327,93 @@ public sealed partial class MainPage
         BrowserInfoBar.Message = AppText.Get("InvalidUrlMessage");
         BrowserInfoBar.Severity = InfoBarSeverity.Warning;
         StartupDiagnostics.Write($"Blocked WebView navigation to an untrusted origin: {args.Uri}");
+    }
+
+    private void ScheduleBrowserSessionVerification(Uri source)
+    {
+        if (Volatile.Read(ref _browserSessionClearInProgress) != 0 ||
+            Volatile.Read(ref _browserAuthenticationTransitionInProgress) != 0)
+        {
+            return;
+        }
+
+        var cancellation = new CancellationTokenSource();
+        var previous = Interlocked.Exchange(
+            ref _browserNavigationVerificationCancellation,
+            cancellation);
+        previous?.Cancel();
+        _ = VerifyBrowserSessionAfterNavigationAsync(source, cancellation);
+    }
+
+    private async Task VerifyBrowserSessionAfterNavigationAsync(
+        Uri source,
+        CancellationTokenSource cancellation)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(1), cancellation.Token);
+            cancellation.Token.ThrowIfCancellationRequested();
+            if (Volatile.Read(ref _browserSessionClearInProgress) != 0 ||
+                Volatile.Read(ref _browserAuthenticationTransitionInProgress) != 0 ||
+                !ViewModel.IsBrowserSessionMode ||
+                SessionWebView.Source is not { } currentSource ||
+                !string.Equals(
+                    source.GetLeftPart(UriPartial.Path).TrimEnd('/'),
+                    currentSource.GetLeftPart(UriPartial.Path).TrimEnd('/'),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            await VerifyBrowserSessionAsync(
+                showMessage: false,
+                restoreFromWebView: !ViewModel.IsBrowserSessionVerified,
+                cancellationToken: cancellation.Token);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            // A newer top-level navigation superseded this verification.
+        }
+        catch (Exception exception)
+        {
+            StartupDiagnostics.Write("Browser navigation session verification failed.", exception);
+        }
+        finally
+        {
+            Interlocked.CompareExchange(
+                ref _browserNavigationVerificationCancellation,
+                null,
+                cancellation);
+            cancellation.Dispose();
+        }
+    }
+
+    private static bool IsAuthenticationTransitionUri(string value)
+    {
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri))
+        {
+            return false;
+        }
+
+        var host = uri.DnsSafeHost;
+        if (host.Equals("login.microsoftonline.com", StringComparison.OrdinalIgnoreCase) ||
+            host.StartsWith("login.microsoftonline.", StringComparison.OrdinalIgnoreCase) ||
+            host.Equals("login.microsoft.com", StringComparison.OrdinalIgnoreCase) ||
+            host.Equals("login.windows.net", StringComparison.OrdinalIgnoreCase) ||
+            host.Equals("account.microsoft.com", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (!SharePointRouteParser.IsAllowedSharePointUri(uri))
+        {
+            return false;
+        }
+
+        var path = uri.AbsolutePath;
+        return path.Contains("/signout", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains("/signin", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains("/login", StringComparison.OrdinalIgnoreCase);
     }
 
     private void SessionWebView_NewWindowRequested(
@@ -266,9 +484,11 @@ public sealed partial class MainPage
         try
         {
             await EnsureBrowserInitializedAsync(navigate: false);
+            BeginBrowserIdentityTransition();
             var result = await _browserSessionService.RestoreSessionAsync(ViewModel.Routes, SessionWebView.CoreWebView2);
-            ViewModel.UpdateBrowserSessionStatus(result);
+            ViewModel.UpdateBrowserSessionStatus(result, HasAuthenticatedBrowserRoute());
             UpdateBrowserInfo(result);
+            await RefreshSharePointExplorerContextAsync();
 
             if (result.Success)
             {
@@ -293,7 +513,13 @@ public sealed partial class MainPage
     {
         if (!_browserInitialized)
         {
-            await SessionWebView.EnsureCoreWebView2Async();
+            Directory.CreateDirectory(_browserSessionService.ProfilePath);
+            var environment = await CoreWebView2Environment.CreateWithOptionsAsync(
+                null,
+                _browserSessionService.ProfilePath,
+                null);
+            await SessionWebView.EnsureCoreWebView2Async(environment);
+            await _browserSessionService.ApplyPendingSessionCleanupAsync(SessionWebView.CoreWebView2);
             ConfigureBrowserSecurity();
             _browserInitialized = true;
         }
@@ -387,32 +613,102 @@ public sealed partial class MainPage
     private async Task<RouteTestResult> TestRouteWithBrowserSessionAsync(DriveRoute route)
     {
         await EnsureBrowserInitializedAsync(navigate: false);
+        BeginBrowserIdentityTransition();
         var result = await _browserSessionService.TestRouteAsync(route, SessionWebView.CoreWebView2);
-        ViewModel.UpdateBrowserSessionStatus(result);
+        ViewModel.UpdateBrowserSessionStatus(result, HasAuthenticatedBrowserRoute());
         UpdateBrowserInfo(result);
+        await RefreshSharePointExplorerContextAsync();
         return result;
     }
 
-    private async Task VerifyBrowserSessionAsync(bool showMessage)
+    private async Task VerifyBrowserSessionAsync(
+        bool showMessage,
+        bool restoreFromWebView = false,
+        CancellationToken cancellationToken = default)
     {
-        await EnsureBrowserInitializedAsync(navigate: false);
-        var result = await _browserSessionService.KeepAliveAsync(ViewModel.Routes, SessionWebView.CoreWebView2);
-        ViewModel.UpdateBrowserSessionStatus(result);
-
-        if (showMessage || !result.Success)
+        cancellationToken.ThrowIfCancellationRequested();
+        if (Volatile.Read(ref _browserSessionClearInProgress) != 0 ||
+            Volatile.Read(ref _browserAuthenticationTransitionInProgress) != 0)
         {
-            UpdateBrowserInfo(result);
+            return;
         }
 
-        if (showMessage)
+        await _browserSessionVerificationGate.WaitAsync(cancellationToken);
+        try
         {
-            ShowActionMessage(
-                result.Success ? AppText.Get("LoginReadyTitle") : AppText.Get("LoginPendingTitle"),
-                result.Message,
-                result.Success ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
-        }
+            cancellationToken.ThrowIfCancellationRequested();
+            if (Volatile.Read(ref _browserSessionClearInProgress) != 0 ||
+                Volatile.Read(ref _browserAuthenticationTransitionInProgress) != 0)
+            {
+                return;
+            }
 
-        await RefreshOperationsHealthAsync();
+            await EnsureBrowserInitializedAsync(navigate: false);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (Volatile.Read(ref _browserSessionClearInProgress) != 0 ||
+                Volatile.Read(ref _browserAuthenticationTransitionInProgress) != 0)
+            {
+                return;
+            }
+
+            RouteTestResult result;
+            if (showMessage ||
+                restoreFromWebView ||
+                !ViewModel.IsBrowserSessionVerified ||
+                !HasAuthenticatedBrowserRoute())
+            {
+                BeginBrowserIdentityTransition();
+                result = await _browserSessionService.RestoreSessionAsync(
+                    ViewModel.Routes,
+                    SessionWebView.CoreWebView2,
+                    cancellationToken);
+            }
+            else
+            {
+                result = await _browserSessionService.KeepAliveAsync(
+                    ViewModel.Routes,
+                    SessionWebView.CoreWebView2,
+                    () => BeginBrowserIdentityTransition(
+                        invalidateBrowserVerification: true,
+                        invalidatePublishedSession: false),
+                    cancellationToken);
+            }
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                _browserSessionService.InvalidatePublishedSession();
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
+            if (Volatile.Read(ref _browserSessionClearInProgress) != 0 ||
+                Volatile.Read(ref _browserAuthenticationTransitionInProgress) != 0)
+            {
+                _browserSessionService.InvalidatePublishedSession();
+                return;
+            }
+
+            ViewModel.UpdateBrowserSessionStatus(result, HasAuthenticatedBrowserRoute());
+            await RefreshSharePointExplorerContextAsync();
+
+            if (showMessage || !result.Success)
+            {
+                UpdateBrowserInfo(result);
+            }
+
+            if (showMessage)
+            {
+                ShowActionMessage(
+                    result.Success ? AppText.Get("LoginReadyTitle") : AppText.Get("LoginPendingTitle"),
+                    result.Message,
+                    result.Success ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
+            }
+
+            await RefreshOperationsHealthAsync();
+        }
+        finally
+        {
+            _browserSessionVerificationGate.Release();
+        }
     }
 
     private void NotifyUpdateReady(AppUpdateStatus? status)
@@ -430,17 +726,67 @@ public sealed partial class MainPage
             status.Update.VersionText);
     }
 
-    private async Task ClearBrowserSessionAsync()
+    private async Task ClearBrowserSessionAsync(bool beginIdentityTransition = true)
     {
-        await EnsureBrowserInitializedAsync(navigate: false);
-        await _browserSessionService.ClearSessionAsync(SessionWebView.CoreWebView2);
-        _approvedFederatedBrowserHosts.Clear();
-        _browserContent.ClearCache();
-        var result = new RouteTestResult(false, AppText.Get("LoginClearedMessage"));
-        ViewModel.UpdateBrowserSessionStatus(result);
-        UpdateBrowserInfo(result);
-        SessionWebView.Source = ViewModel.GetBrowserSessionStartUri();
+        BeginBrowserSessionClearBarrier();
+        if (beginIdentityTransition && ViewModel.IsBrowserSessionMode)
+        {
+            BeginBrowserIdentityTransition(invalidateBrowserVerification: true);
+        }
+
+        await _browserSessionVerificationGate.WaitAsync();
+        try
+        {
+            await EnsureBrowserInitializedAsync(navigate: false);
+            await _browserSessionService.ClearSessionAsync(SessionWebView.CoreWebView2);
+            _approvedFederatedBrowserHosts.Clear();
+            _browserContent.ClearCache();
+            _browserSessionCacheScope = $"BROWSER-SESSION-{Guid.NewGuid():N}";
+            var result = new RouteTestResult(false, AppText.Get("LoginClearedMessage"));
+            ViewModel.UpdateBrowserSessionStatus(result, hasVerifiedRoute: false);
+            UpdateBrowserInfo(result);
+            SessionWebView.Source = new Uri("about:blank");
+            await RefreshSharePointExplorerContextAsync();
+        }
+        finally
+        {
+            _browserSessionVerificationGate.Release();
+            EndBrowserSessionClearBarrier();
+        }
     }
+
+    private void BeginBrowserSessionClearBarrier()
+    {
+        Interlocked.Increment(ref _browserSessionClearInProgress);
+        CancelPendingBrowserSessionVerification();
+    }
+
+    private void CancelPendingBrowserSessionVerification()
+    {
+        var pendingVerification = Interlocked.Exchange(
+            ref _browserNavigationVerificationCancellation,
+            null);
+        pendingVerification?.Cancel();
+    }
+
+    private void EndBrowserSessionClearBarrier() =>
+        Interlocked.Decrement(ref _browserSessionClearInProgress);
+
+    private bool HasAuthenticatedBrowserRoute() =>
+        ViewModel.Routes.Any(route =>
+            Uri.TryCreate(route.SharePointUrl, UriKind.Absolute, out var uri) &&
+            SharePointRouteParser.IsAllowedSharePointUri(uri) &&
+            ViewModel.IsRouteAllowed(route.SharePointUrl) &&
+            SharePointCookieStore.IsRouteVerified(uri) &&
+            SharePointCookieStore.TryGetCookieHeader(uri, out _));
+
+    private void BeginBrowserIdentityTransition(
+        bool invalidateBrowserVerification = false,
+        bool invalidatePublishedSession = true) =>
+        BeginContentIdentityTransition(
+            usesBrowserSession: true,
+            invalidateBrowserVerification: invalidateBrowserVerification,
+            invalidatePublishedBrowserSession: invalidatePublishedSession);
 
     private async Task TrimBrowserCacheAsync()
     {

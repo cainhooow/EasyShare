@@ -18,12 +18,15 @@ public sealed class OfflineCacheService
     private readonly AppDataPaths _paths;
     private readonly SharePointBrowserContentService _content;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly SemaphoreSlim _pinOperationGate = new(1, 1);
     private readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = true
     };
     private ConcurrentDictionary<string, OfflineCacheRecord> _records = new(StringComparer.OrdinalIgnoreCase);
     private bool _initialized;
+    private CancellationTokenSource _resetCancellation = new();
+    private int _resetSuspended;
 
     public OfflineCacheService(AppDataPaths paths, SharePointBrowserContentService content)
     {
@@ -90,12 +93,24 @@ public sealed class OfflineCacheService
     {
         ArgumentNullException.ThrowIfNull(route);
         ArgumentNullException.ThrowIfNull(settings);
-        await InitializeAsync(cancellationToken).ConfigureAwait(false);
-
-        if (ShouldPause(settings, out var reason))
+        await _pinOperationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var operationCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            _resetCancellation.Token);
+        var operationToken = operationCancellation.Token;
+        try
         {
-            return new OfflineCachePinResult(false, 0, 0, reason);
-        }
+            if (Volatile.Read(ref _resetSuspended) != 0)
+            {
+                throw new InvalidOperationException("Local data is being deleted. Offline downloads are temporarily blocked.");
+            }
+
+            await InitializeAsync(operationToken).ConfigureAwait(false);
+
+            if (ShouldPause(settings, out var reason))
+            {
+                return new OfflineCachePinResult(false, 0, 0, reason);
+            }
 
         var quotaBytes = checked((long)Math.Clamp(settings.OfflineCacheLimitMb, 128, 102400) * 1024 * 1024);
         var pending = new Queue<string>();
@@ -106,13 +121,13 @@ public sealed class OfflineCacheService
         {
             while (pending.Count > 0)
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                operationToken.ThrowIfCancellationRequested();
                 var parent = pending.Dequeue();
-                var children = await _content.ListDirectoryAsync(route, parent, cancellationToken)
+                var children = await _content.ListDirectoryAsync(route, parent, operationToken)
                     .ConfigureAwait(false);
                 foreach (var child in children)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
+                    operationToken.ThrowIfCancellationRequested();
                     var relativePath = CombineRelative(parent, child.Name);
                     if (child.IsDirectory)
                     {
@@ -132,7 +147,7 @@ public sealed class OfflineCacheService
                         child.Length,
                         child.ModifiedAt,
                         quotaBytes,
-                        cancellationToken).ConfigureAwait(false);
+                        operationToken).ConfigureAwait(false);
                     files++;
                     bytes = checked(bytes + cached.SizeBytes);
                 }
@@ -148,6 +163,84 @@ public sealed class OfflineCacheService
         {
             return new OfflineCachePinResult(false, files, bytes, ex.Message);
         }
+        }
+        finally
+        {
+            _pinOperationGate.Release();
+        }
+    }
+
+    public async Task<IAsyncDisposable> SuspendForResetAsync(CancellationToken cancellationToken = default)
+    {
+        if (Interlocked.CompareExchange(ref _resetSuspended, 1, 0) != 0)
+        {
+            throw new InvalidOperationException("Offline cache operations are already paused for local data deletion.");
+        }
+
+        _resetCancellation.Cancel();
+        try
+        {
+            await _pinOperationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return new ResetSuspension(this);
+        }
+        catch
+        {
+            ResumeAfterReset();
+            throw;
+        }
+    }
+
+    public async Task RehydrateAfterLocalDataResetAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (Volatile.Read(ref _resetSuspended) == 0)
+        {
+            throw new InvalidOperationException(
+                "Offline cache rehydration requires an active local-data reset suspension.");
+        }
+
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (Volatile.Read(ref _resetSuspended) == 0)
+            {
+                throw new InvalidOperationException(
+                    "The local-data reset suspension ended before offline cache rehydration.");
+            }
+
+            _records = new ConcurrentDictionary<string, OfflineCacheRecord>(
+                StringComparer.OrdinalIgnoreCase);
+            _initialized = false;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private void ResumeAfterReset()
+    {
+        var previous = _resetCancellation;
+        _resetCancellation = new CancellationTokenSource();
+        Volatile.Write(ref _resetSuspended, 0);
+        previous.Dispose();
+    }
+
+    private sealed class ResetSuspension(OfflineCacheService owner) : IAsyncDisposable
+    {
+        private OfflineCacheService? _owner = owner;
+
+        public ValueTask DisposeAsync()
+        {
+            var current = Interlocked.Exchange(ref _owner, null);
+            if (current is not null)
+            {
+                current.ResumeAfterReset();
+                current._pinOperationGate.Release();
+            }
+
+            return ValueTask.CompletedTask;
+        }
     }
 
     public async Task<bool> TryCopyToAsync(
@@ -157,35 +250,52 @@ public sealed class OfflineCacheService
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(destination);
-        await InitializeAsync(cancellationToken).ConfigureAwait(false);
-        var key = BuildKey(routeId, relativePath);
-        OfflineCacheRecord? record;
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await _pinOperationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var operationCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            _resetCancellation.Token);
+        var operationToken = operationCancellation.Token;
         try
         {
-            _records.TryGetValue(key, out record);
+            if (Volatile.Read(ref _resetSuspended) != 0)
+            {
+                throw new InvalidOperationException("Local data is being deleted. Offline file access is temporarily blocked.");
+            }
+
+            await InitializeAsync(operationToken).ConfigureAwait(false);
+            var key = BuildKey(routeId, relativePath);
+            OfflineCacheRecord? record;
+            await _gate.WaitAsync(operationToken).ConfigureAwait(false);
+            try
+            {
+                _records.TryGetValue(key, out record);
+            }
+            finally
+            {
+                _gate.Release();
+            }
+
+            if (record is null || !File.Exists(GetPayloadPath(key)))
+            {
+                return false;
+            }
+
+            var store = CreateStore(long.MaxValue / 4);
+            try
+            {
+                await store.DecryptToAsync(GetPayloadPath(key), destination, operationToken).ConfigureAwait(false);
+                await TouchAsync(key, operationToken).ConfigureAwait(false);
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                await MarkErrorAsync(key, ex.Message, operationToken).ConfigureAwait(false);
+                return false;
+            }
         }
         finally
         {
-            _gate.Release();
-        }
-
-        if (record is null || !File.Exists(GetPayloadPath(key)))
-        {
-            return false;
-        }
-
-        var store = CreateStore(long.MaxValue / 4);
-        try
-        {
-            await store.DecryptToAsync(GetPayloadPath(key), destination, cancellationToken).ConfigureAwait(false);
-            await TouchAsync(key, cancellationToken).ConfigureAwait(false);
-            return true;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            await MarkErrorAsync(key, ex.Message, cancellationToken).ConfigureAwait(false);
-            return false;
+            _pinOperationGate.Release();
         }
     }
 
@@ -202,33 +312,130 @@ public sealed class OfflineCacheService
 
     public async Task<bool> RemoveAsync(string key, CancellationToken cancellationToken = default)
     {
-        await InitializeAsync(cancellationToken).ConfigureAwait(false);
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await _pinOperationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!_records.TryRemove(key, out _))
+            if (Volatile.Read(ref _resetSuspended) != 0)
             {
-                return false;
+                throw new InvalidOperationException("Local data is being deleted. Offline cache changes are temporarily blocked.");
             }
 
+            await InitializeAsync(cancellationToken).ConfigureAwait(false);
+            await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                if (File.Exists(GetPayloadPath(key)))
+                if (!_records.TryRemove(key, out _))
                 {
-                    File.Delete(GetPayloadPath(key));
+                    return false;
                 }
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                return false;
-            }
 
-            await SaveIndexAsync(cancellationToken).ConfigureAwait(false);
-            return true;
+                try
+                {
+                    if (File.Exists(GetPayloadPath(key)))
+                    {
+                        File.Delete(GetPayloadPath(key));
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    return false;
+                }
+
+                await SaveIndexAsync(cancellationToken).ConfigureAwait(false);
+                return true;
+            }
+            finally
+            {
+                _gate.Release();
+            }
         }
         finally
         {
-            _gate.Release();
+            _pinOperationGate.Release();
+        }
+    }
+
+    public async Task<int> RemovePathAsync(
+        Guid routeId,
+        string relativePath,
+        bool isDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        var normalized = NormalizeRelative(relativePath);
+        if (routeId == Guid.Empty || string.IsNullOrWhiteSpace(normalized))
+        {
+            return 0;
+        }
+
+        await _pinOperationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (Volatile.Read(ref _resetSuspended) != 0)
+            {
+                throw new InvalidOperationException(
+                    "Local data is being deleted. Offline cache changes are temporarily blocked.");
+            }
+
+            await InitializeAsync(cancellationToken).ConfigureAwait(false);
+            await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var removedKeys = _records
+                    .Where(pair =>
+                        pair.Value.RouteId == routeId &&
+                        (string.Equals(
+                             pair.Value.RelativePath,
+                             normalized,
+                             StringComparison.OrdinalIgnoreCase) ||
+                         isDirectory &&
+                         pair.Value.RelativePath.StartsWith(
+                             normalized + "/",
+                             StringComparison.OrdinalIgnoreCase)))
+                    .Select(pair => pair.Key)
+                    .ToArray();
+                if (removedKeys.Length == 0)
+                {
+                    // A prior canceled attempt may already have removed the
+                    // in-memory entry but not committed the index replacement.
+                    await SaveIndexAsync(cancellationToken).ConfigureAwait(false);
+                    return 0;
+                }
+
+                foreach (var key in removedKeys)
+                {
+                    _records.TryRemove(key, out _);
+                }
+
+                // Persist absence before best-effort payload cleanup. A locked
+                // ciphertext may become an orphan, but it cannot repopulate the
+                // Explorer after the remote item has been deleted.
+                await SaveIndexAsync(cancellationToken).ConfigureAwait(false);
+                foreach (var key in removedKeys)
+                {
+                    try
+                    {
+                        var payloadPath = GetPayloadPath(key);
+                        if (File.Exists(payloadPath))
+                        {
+                            File.Delete(payloadPath);
+                        }
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        StartupDiagnostics.Write("Offline delete payload cleanup failed.", ex);
+                    }
+                }
+
+                return removedKeys.Length;
+            }
+            finally
+            {
+                _gate.Release();
+            }
+        }
+        finally
+        {
+            _pinOperationGate.Release();
         }
     }
 

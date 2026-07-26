@@ -7,6 +7,13 @@ public enum AppThemeMode
     Dark
 }
 
+public enum AppCloseBehavior
+{
+    Ask,
+    KeepRunningInTray,
+    Exit
+}
+
 public sealed class AppSettings
 {
     public AuthenticationMode AuthenticationMode { get; set; } = AuthenticationMode.BrowserSession;
@@ -58,6 +65,8 @@ public sealed class AppSettings
     public bool NotifyUpdateReady { get; set; } = true;
 
     public bool QuietModeEnabled { get; set; }
+
+    public AppCloseBehavior CloseBehavior { get; set; } = AppCloseBehavior.Ask;
 
     public int OfflineCacheLimitMb { get; set; } = 2048;
 

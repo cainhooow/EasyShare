@@ -438,6 +438,7 @@ public static partial class SetupWizardAdvisor
         NotifyDriveDisconnected = source.NotifyDriveDisconnected,
         NotifyUpdateReady = source.NotifyUpdateReady,
         QuietModeEnabled = source.QuietModeEnabled,
+        CloseBehavior = source.CloseBehavior,
         OfflineCacheLimitMb = source.OfflineCacheLimitMb,
         OfflinePauseOnMeteredNetwork = source.OfflinePauseOnMeteredNetwork,
         OfflinePauseOnBattery = source.OfflinePauseOnBattery

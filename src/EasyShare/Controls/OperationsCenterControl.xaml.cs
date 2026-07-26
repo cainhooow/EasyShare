@@ -2,8 +2,29 @@ using EasyShare.Models;
 using EasyShare.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Data;
 
 namespace EasyShare.Controls;
+
+public sealed class BooleanToVisibilityConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language) =>
+        value is true ? Visibility.Visible : Visibility.Collapsed;
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
+        throw new NotSupportedException();
+}
+
+public sealed class StringToVisibilityConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language) =>
+        value is string text && !string.IsNullOrWhiteSpace(text)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
+        throw new NotSupportedException();
+}
 
 public enum ConflictResolutionAction
 {
@@ -25,6 +46,12 @@ public sealed partial class OperationsCenterControl : UserControl
 
     public event Action<Guid>? RetryRequested;
 
+    public event Action<Guid>? ExportRequested;
+
+    public event Action<Guid>? DetailsRequested;
+
+    public event Action? ClearCompletedRequested;
+
     public event Action<ConflictResolutionRequest>? ConflictResolutionRequested;
 
     public event Action? HealthRefreshRequested;
@@ -43,6 +70,8 @@ public sealed partial class OperationsCenterControl : UserControl
 
     public void SelectConflicts() => OperationsTabs.SelectedIndex = 1;
 
+    public void SelectTransfers() => OperationsTabs.SelectedIndex = 0;
+
     public void SelectHealth() => OperationsTabs.SelectedIndex = 2;
 
     public void SelectOffline() => OperationsTabs.SelectedIndex = 3;
@@ -54,6 +83,25 @@ public sealed partial class OperationsCenterControl : UserControl
             RetryRequested?.Invoke(jobId);
         }
     }
+
+    private void ExportButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (TryGetGuid(sender, out var jobId))
+        {
+            ExportRequested?.Invoke(jobId);
+        }
+    }
+
+    private void DetailsButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (TryGetGuid(sender, out var jobId))
+        {
+            DetailsRequested?.Invoke(jobId);
+        }
+    }
+
+    private void ClearCompletedButton_Click(object sender, RoutedEventArgs e) =>
+        ClearCompletedRequested?.Invoke();
 
     private void ExportConflictButton_Click(object sender, RoutedEventArgs e) =>
         RaiseConflict(sender, ConflictResolutionAction.ExportLocalCopy);

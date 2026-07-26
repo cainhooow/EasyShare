@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Reflection;
 using System.Xml.Linq;
+using EasyShare.Services;
 using Microsoft.UI.Xaml;
 using Windows.Globalization;
 using Windows.Storage;
@@ -87,6 +88,11 @@ public static class AppText
 
     public static string LoadStartupLanguageCode()
     {
+        if (DebugVisualTestIsolation.IsActive)
+        {
+            return PortugueseLanguageCode;
+        }
+
         try
         {
             return NormalizeLanguageCode(
@@ -100,6 +106,11 @@ public static class AppText
 
     public static void SaveStartupLanguageCode(string? languageCode)
     {
+        if (DebugVisualTestIsolation.IsActive)
+        {
+            return;
+        }
+
         try
         {
             ApplicationData.Current.LocalSettings.Values[StartupLanguageSettingKey] =
@@ -108,6 +119,23 @@ public static class AppText
         catch
         {
             // The SQLite setting remains authoritative if local app settings are unavailable.
+        }
+    }
+
+    public static void ClearStartupLanguageCode()
+    {
+        if (DebugVisualTestIsolation.IsActive)
+        {
+            return;
+        }
+
+        try
+        {
+            ApplicationData.Current.LocalSettings.Values.Remove(StartupLanguageSettingKey);
+        }
+        catch
+        {
+            // The database and reset marker still prevent identity data from returning.
         }
     }
 
@@ -121,6 +149,11 @@ public static class AppText
 
     private static void TrySetPrimaryLanguageOverride(string languageCode)
     {
+        if (DebugVisualTestIsolation.IsActive)
+        {
+            return;
+        }
+
         try
         {
             ApplicationLanguages.PrimaryLanguageOverride = languageCode;

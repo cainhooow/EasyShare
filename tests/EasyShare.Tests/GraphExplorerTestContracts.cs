@@ -16,7 +16,13 @@ namespace EasyShare.Services
         Conflict
     }
 
-    public sealed record UploadAttemptResult(UploadAttemptState State, string? Error = null);
+    public sealed record UploadAttemptResult(
+        UploadAttemptState State,
+        string? Error = null,
+        RemoteUploadReceipt? Receipt = null,
+        SyncFailureKind FailureKind = SyncFailureKind.Unknown,
+        string? TechnicalDetails = null,
+        bool IsCommitAmbiguous = false);
 
     public interface ISharePointContentTransfer
     {
@@ -31,6 +37,13 @@ namespace EasyShare.Services
             string relativePath,
             Stream content,
             DateTimeOffset? expectedModifiedAt,
+            CancellationToken cancellationToken = default,
+            IProgress<UploadTransferProgress>? progress = null);
+
+        Task<RemoteDeleteAttemptResult> TryDeleteItemAsync(
+            DriveRoute route,
+            string relativePath,
+            bool isDirectory,
             CancellationToken cancellationToken = default);
     }
 }

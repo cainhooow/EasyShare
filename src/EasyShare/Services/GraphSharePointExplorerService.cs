@@ -8,9 +8,11 @@ using EasyShare.Models;
 
 namespace EasyShare.Services;
 
-public sealed class GraphSharePointExplorerService
+public sealed class GraphSharePointExplorerService : ISharePointExplorerService
 {
     private const string GraphBaseUrl = "https://graph.microsoft.com/v1.0";
+    private const int MaximumPaginationPages = 100;
+    private const int MaximumDiscoveredItems = 20_000;
     private static readonly HttpClient SharedHttpClient = new();
     private static readonly TimeSpan DefaultCacheTtl = TimeSpan.FromMinutes(5);
     private readonly IAuthenticationService _authentication;
@@ -101,6 +103,14 @@ public sealed class GraphSharePointExplorerService
         ArgumentException.ThrowIfNullOrWhiteSpace(siteId);
         siteId = ValidateGraphIdentifier(siteId, nameof(siteId));
         var token = await GetRequiredTokenAsync(cancellationToken).ConfigureAwait(false);
+        return await GetLibrariesCoreAsync(siteId, token, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<IReadOnlyList<SharePointLibraryInfo>> GetLibrariesCoreAsync(
+        string siteId,
+        string token,
+        CancellationToken cancellationToken)
+    {
         var url = $"{GraphBaseUrl}/sites/{Uri.EscapeDataString(siteId)}/drives" +
                   "?$select=id,name,webUrl,driveType&$top=200";
         var drives = await GetAllLibrariesAsync(url, siteId, token, cancellationToken).ConfigureAwait(false);
@@ -185,7 +195,7 @@ public sealed class GraphSharePointExplorerService
                 "Microsoft Graph resolved the URL to a site blocked by the enterprise policy.");
         }
 
-        var libraries = await GetLibrariesAsync(siteId, cancellationToken).ConfigureAwait(false);
+        var libraries = await GetLibrariesCoreAsync(siteId, token, cancellationToken).ConfigureAwait(false);
         if (libraries.Count == 0)
         {
             throw new SharePointExplorerException(
@@ -276,9 +286,15 @@ public sealed class GraphSharePointExplorerService
             var items = new List<SharePointSiteInfo>();
             var nextUrl = initialUrl;
             var visited = new HashSet<string>(StringComparer.Ordinal);
+            var pageCount = 0;
             while (!string.IsNullOrWhiteSpace(nextUrl))
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (++pageCount > MaximumPaginationPages)
+                {
+                    throw InvalidResponse("Microsoft Graph returned too many pagination pages.");
+                }
+
                 nextUrl = ValidateGraphUrl(nextUrl);
                 if (!visited.Add(nextUrl))
                 {
@@ -287,6 +303,11 @@ public sealed class GraphSharePointExplorerService
 
                 using var document = await GetJsonAsync(nextUrl, token, cancellationToken).ConfigureAwait(false);
                 items.AddRange(ParseSites(document.RootElement, isFollowed));
+                if (items.Count > MaximumDiscoveredItems)
+                {
+                    throw InvalidResponse("Microsoft Graph returned too many SharePoint sites.");
+                }
+
                 nextUrl = ReadNextLink(document.RootElement);
             }
 
@@ -311,9 +332,15 @@ public sealed class GraphSharePointExplorerService
         var libraries = new List<SharePointLibraryInfo>();
         var nextUrl = initialUrl;
         var visited = new HashSet<string>(StringComparer.Ordinal);
+        var pageCount = 0;
         while (!string.IsNullOrWhiteSpace(nextUrl))
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (++pageCount > MaximumPaginationPages)
+            {
+                throw InvalidResponse("Microsoft Graph returned too many pagination pages.");
+            }
+
             nextUrl = ValidateGraphUrl(nextUrl);
             if (!visited.Add(nextUrl))
             {
@@ -322,6 +349,11 @@ public sealed class GraphSharePointExplorerService
 
             using var document = await GetJsonAsync(nextUrl, token, cancellationToken).ConfigureAwait(false);
             libraries.AddRange(ParseLibraries(document.RootElement, siteId));
+            if (libraries.Count > MaximumDiscoveredItems)
+            {
+                throw InvalidResponse("Microsoft Graph returned too many document libraries.");
+            }
+
             nextUrl = ReadNextLink(document.RootElement);
         }
 
@@ -787,7 +819,9 @@ public sealed class GraphSharePointExplorerService
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
             uri.Scheme != Uri.UriSchemeHttps ||
-            !string.Equals(uri.Host, "graph.microsoft.com", StringComparison.OrdinalIgnoreCase))
+            !string.Equals(uri.Host, "graph.microsoft.com", StringComparison.OrdinalIgnoreCase) ||
+            uri.Port != 443 ||
+            !uri.AbsolutePath.StartsWith("/v1.0/", StringComparison.OrdinalIgnoreCase))
         {
             throw InvalidResponse("Microsoft Graph returned an untrusted pagination link.");
         }

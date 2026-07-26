@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="EasyShare.Controls.ContentAssistantControl"
+    x:Name="AssistantRoot"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:EasyShare.Controls"
+    xmlns:models="using:EasyShare.Models"
+    Unloaded="ContentAssistantControl_Unloaded"
+    MinHeight="360">
+    <UserControl.Resources>
+        <DataTemplate x:Key="AssistantFolderTemplate" x:DataType="models:ContentSearchResult">
+            <Grid
+                Padding="12,9"
+                ColumnSpacing="12"
+                AutomationProperties.HelpText="{x:Bind RelativePath}"
+                AutomationProperties.Name="{x:Bind Name}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <SymbolIcon
+                    VerticalAlignment="Center"
+                    Foreground="{ThemeResource EasyShareAccentBrush}"
+                    Symbol="Folder" />
+                <StackPanel Grid.Column="1" Spacing="2">
+                    <TextBlock
+                        Style="{ThemeResource BodyStrongTextBlockStyle}"
+                        Text="{x:Bind Name}"
+                        TextTrimming="CharacterEllipsis" />
+                    <TextBlock
+                        Style="{ThemeResource CaptionTextBlockStyle}"
+                        Text="{x:Bind RouteDisplayName}"
+                        TextTrimming="CharacterEllipsis" />
+                    <TextBlock
+                        Style="{ThemeResource CaptionTextBlockStyle}"
+                        Text="{x:Bind RelativePath}"
+                        TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+            </Grid>
+        </DataTemplate>
+
+        <DataTemplate x:Key="AssistantFileTemplate" x:DataType="models:ContentSearchResult">
+            <Grid
+                Padding="12,9"
+                ColumnSpacing="12"
+                AutomationProperties.HelpText="{x:Bind RelativePath}"
+                AutomationProperties.Name="{x:Bind Name}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <SymbolIcon
+                    VerticalAlignment="Center"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Symbol="OpenFile" />
+                <StackPanel Grid.Column="1" Spacing="2">
+                    <TextBlock
+                        Style="{ThemeResource BodyStrongTextBlockStyle}"
+                        Text="{x:Bind Name}"
+                        TextTrimming="CharacterEllipsis" />
+                    <TextBlock
+                        Style="{ThemeResource CaptionTextBlockStyle}"
+                        Text="{x:Bind RouteDisplayName}"
+                        TextTrimming="CharacterEllipsis" />
+                    <TextBlock
+                        Style="{ThemeResource CaptionTextBlockStyle}"
+                        Text="{x:Bind RelativePath}"
+                        TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+            </Grid>
+        </DataTemplate>
+
+        <controls:ContentAssistantResultTemplateSelector
+            x:Key="AssistantResultTemplateSelector"
+            FileTemplate="{StaticResource AssistantFileTemplate}"
+            FolderTemplate="{StaticResource AssistantFolderTemplate}" />
+    </UserControl.Resources>
+
+    <Grid RowSpacing="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Spacing="4">
+            <TextBlock
+                Style="{ThemeResource TitleTextBlockStyle}"
+                Text="{x:Bind ViewModel.Title, Mode=OneWay}" />
+            <TextBlock
+                Style="{ThemeResource BodyTextBlockStyle}"
+                Text="{x:Bind ViewModel.Subtitle, Mode=OneWay}"
+                TextWrapping="Wrap" />
+        </StackPanel>
+
+        <CommandBar
+            Grid.Row="1"
+            Background="{ThemeResource EasyShareCommandBarBackgroundBrush}"
+            DefaultLabelPosition="Right"
+            IsDynamicOverflowEnabled="True">
+            <CommandBar.PrimaryCommands>
+                <AppBarButton
+                    Click="IndexButton_Click"
+                    IsEnabled="{x:Bind ViewModel.CanIndex, Mode=OneWay}"
+                    Label="{x:Bind ViewModel.IndexAction, Mode=OneWay}">
+                    <AppBarButton.Icon>
+                        <SymbolIcon Symbol="Sync" />
+                    </AppBarButton.Icon>
+                </AppBarButton>
+                <AppBarButton
+                    Click="CancelButton_Click"
+                    IsEnabled="{x:Bind ViewModel.CanCancel, Mode=OneWay}"
+                    Label="{x:Bind ViewModel.CancelAction, Mode=OneWay}">
+                    <AppBarButton.Icon>
+                        <SymbolIcon Symbol="Cancel" />
+                    </AppBarButton.Icon>
+                </AppBarButton>
+            </CommandBar.PrimaryCommands>
+        </CommandBar>
+
+        <AutoSuggestBox
+            x:Name="SearchBox"
+            Grid.Row="2"
+            AutomationProperties.Name="{x:Bind ViewModel.SearchPlaceholder, Mode=OneWay}"
+            IsEnabled="{x:Bind ViewModel.CanSearch, Mode=OneWay}"
+            PlaceholderText="{x:Bind ViewModel.SearchPlaceholder, Mode=OneWay}"
+            QuerySubmitted="SearchBox_QuerySubmitted"
+            TextChanged="SearchBox_TextChanged"
+            Text="{x:Bind ViewModel.SearchQuery, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}">
+            <AutoSuggestBox.QueryIcon>
+                <SymbolIcon Symbol="Find" />
+            </AutoSuggestBox.QueryIcon>
+        </AutoSuggestBox>
+
+        <InfoBar
+            Grid.Row="3"
+            AutomationProperties.LiveSetting="Polite"
+            IsClosable="False"
+            IsOpen="{x:Bind ViewModel.IsStatusOpen, Mode=OneWay}"
+            Message="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+            Severity="{x:Bind ViewModel.StatusSeverity, Mode=OneWay}"
+            Title="{x:Bind ViewModel.StatusTitle, Mode=OneWay}" />
+
+        <Grid Grid.Row="4" ColumnSpacing="10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock
+                VerticalAlignment="Center"
+                Style="{ThemeResource SubtitleTextBlockStyle}"
+                Text="{x:Bind ViewModel.ResultsTitle, Mode=OneWay}" />
+            <ProgressRing
+                Grid.Column="1"
+                Width="24"
+                Height="24"
+                AutomationProperties.Name="{x:Bind ViewModel.IndexProgressAutomationName, Mode=OneWay}"
+                IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}"
+                Visibility="{x:Bind ViewModel.BusyVisibility, Mode=OneWay}" />
+        </Grid>
+
+        <Grid Grid.Row="5">
+            <ListView
+                x:Name="ResultsList"
+                AutomationProperties.HelpText="{x:Bind ViewModel.OpenResultHelp, Mode=OneWay}"
+                AutomationProperties.Name="{x:Bind ViewModel.ResultsAutomationName, Mode=OneWay}"
+                Background="{ThemeResource EasyShareSurfaceBrush}"
+                DoubleTapped="ResultsList_DoubleTapped"
+                ItemsSource="{x:Bind ViewModel.Results, Mode=OneWay}"
+                ItemTemplateSelector="{StaticResource AssistantResultTemplateSelector}"
+                KeyDown="ResultsList_KeyDown"
+                SelectionMode="Single" />
+
+            <InfoBar
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Top"
+                IsClosable="False"
+                IsOpen="True"
+                Message="{x:Bind ViewModel.EmptyMessage, Mode=OneWay}"
+                Severity="Informational"
+                Title="{x:Bind ViewModel.ResultsTitle, Mode=OneWay}"
+                Visibility="{x:Bind ViewModel.EmptyVisibility, Mode=OneWay}" />
+        </Grid>
+    </Grid>
+</UserControl>

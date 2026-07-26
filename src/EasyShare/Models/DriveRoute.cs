@@ -41,4 +41,10 @@ public sealed class DriveRoute
         LastCheckedAt is null
             ? AppText.Get("DriveRouteUntested")
             : AppText.Format("DriveRouteLastCheckedFormat", LastCheckedAt.Value.LocalDateTime);
+
+    public string TestAutomationName => AppText.Format("RouteTestAutomationFormat", DisplayName);
+
+    public string EditAutomationName => AppText.Format("RouteEditAutomationFormat", DisplayName);
+
+    public string RemoveAutomationName => AppText.Format("RouteRemoveAutomationFormat", DisplayName);
 }

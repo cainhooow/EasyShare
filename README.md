@@ -65,9 +65,10 @@ As configurações ficam concentradas no aplicativo: modo de acesso, inicializa�
 
 - Unidade virtual do Windows baseada em WinFsp.
 - Assistente de configuração em sete etapas para orientar a primeira execução e recomendar opções adequadas ao ambiente.
-- Explorador nativo de sites, bibliotecas e pastas via Microsoft Graph, sem exigir que o usuário localize ou copie a URL.
+- Explorador nativo de sites, bibliotecas e pastas: descoberta ampla via Microsoft Graph e navegação das rotas já autenticadas pela sessão WebView.
+- Busca inteligente local por arquivos e pastas indexados, com histórico de itens mais acessados isolado por conta.
 - Navegação do SharePoint por sessão integrada com WebView2.
-- Fixação por IDs estáveis de site, drive e item, preservando a rota mesmo quando a URL de exibição muda.
+- Fixação por IDs estáveis de site, drive e item no modo Microsoft Graph; na WebView, a rota validada permanece baseada em URL, sem criar identidades Graph artificiais.
 - Pastas fixadas com nome personalizado no Explorer.
 - Adição, edição, remoção e teste de pastas configuradas.
 - Leitura e download sob demanda de arquivos.
@@ -108,8 +109,9 @@ A conclusão da primeira execução é versionada. Quando uma versão futura do 
 3. Selecione o modo de acesso indicado para o ambiente. Use Microsoft Graph quando a TI fornecer Client ID/Tenant; a Sessão do navegador permanece disponível como alternativa compatível quando permitida.
 4. Conclua a conexão e escolha a integração com o Windows, o cache offline e as notificações.
 5. Revise as opções e conclua o assistente para aplicá-las de uma só vez.
-6. No modo Graph, use o **Explorador** para localizar e fixar uma pasta; no modo Browser, abra a pasta na **Sessão** e escolha **Fixar pasta atual**.
-7. Acesse a unidade criada pelo EasyShare no Windows Explorer.
+6. No modo Graph, use o **Explorador** para descobrir sites e fixar uma pasta. No modo Browser, fixe ou teste uma pasta pela **Sessão**; depois ela também fica navegável no **Explorador**.
+7. Use **Busca inteligente** para indexar as pastas fixadas e pesquisar arquivos ou pastas sem sair do EasyShare.
+8. Acesse a unidade criada pelo EasyShare no Windows Explorer.
 
 Se a unidade não aparecer, verifique se o WinFsp está instalado, se existe pelo menos uma pasta fixada e se a opção **Criar unidade automaticamente** está habilitada em **Ajustes**.
 
@@ -138,7 +140,8 @@ O instalador pode incluir os pré-requisitos necessários, conforme a versão pu
 Usuário
   ↓
 EasyShare / WinUI 3
-  ├─ Explorador SharePoint via Microsoft Graph + MSAL
+  ├─ Explorador SharePoint via Microsoft Graph + MSAL ou rotas WebView autenticadas
+  ├─ Índice local e histórico de acesso por identidade
   ├─ Sessão SharePoint via WebView2
   ├─ Rotas e ajustes locais via SQLite
   ├─ Unidade virtual via WinFsp
@@ -165,7 +168,7 @@ Alterações feitas pelo Explorer são gravadas primeiro na fila local. O EasySh
 
 ## Segurança e limitações atuais
 
-O projeto valida HTTPS e hosts SharePoint tanto na sessão WebView quanto na descoberta Graph. A allowlist corporativa filtra os sites antes de exibi-los e é aplicada novamente ao fixar ou usar uma rota. Caminhos Graph são confinados à pasta fixada, e falhas remotas não substituem o cache válido por uma listagem vazia. A limpeza de cache também é acionada durante o reset e a limpeza da sessão.
+O projeto valida HTTPS e hosts SharePoint tanto na sessão WebView quanto na descoberta Graph. A allowlist corporativa filtra os sites antes de exibi-los e é aplicada novamente ao fixar ou usar uma rota. Caminhos Graph são confinados à pasta fixada, e falhas remotas não substituem o cache válido por uma listagem vazia. Cache de diretórios, índice local e histórico são separados por identidade autenticada; cookies e tokens não são persistidos no índice. A limpeza de cache também é acionada durante o reset e a limpeza da sessão.
 
 A descoberta delegada combina sites seguidos e busca do Microsoft 365; ela não é uma enumeração garantidamente completa de todo o tenant. Por isso, a pesquisa por nome e a entrada manual de URL continuam disponíveis como fallback. No modo Graph, a URL manual é resolvida e validada antes de salvar para obter os IDs estáveis de site, biblioteca e pasta; ela não muda silenciosamente para o transporte por cookies.
 

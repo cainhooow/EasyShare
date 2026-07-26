@@ -4,7 +4,7 @@ namespace EasyShare.Services;
 
 public static class StartupDiagnostics
 {
-    private static readonly AppDataPaths Paths = new();
+    private static readonly AppDataPaths Paths = CreatePaths();
     private static readonly object Gate = new();
     private static RotatingDiagnosticLog? _log;
 
@@ -53,5 +53,18 @@ public static class StartupDiagnostics
         {
             // Startup logging must never become the reason the app does not open.
         }
+    }
+
+    private static AppDataPaths CreatePaths()
+    {
+        if (DebugVisualTestIsolation.DataDirectory is not { } isolatedDataDirectory)
+        {
+            return new AppDataPaths();
+        }
+
+        return new AppDataPaths(
+            isolatedDataDirectory,
+            packageWebViewProfilePath:
+                DebugVisualTestIsolation.PackageWebViewProfileDirectory);
     }
 }

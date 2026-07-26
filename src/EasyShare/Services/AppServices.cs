@@ -8,7 +8,7 @@ namespace EasyShare.Services;
 /// </summary>
 public sealed class AppServices : IDisposable
 {
-    private bool _disposed;
+    private int _disposed;
 
     private AppServices(
         AppDataPaths paths,
@@ -21,6 +21,8 @@ public sealed class AppServices : IDisposable
         StartupService startup,
         GraphSharePointService graphSharePoint,
         GraphSharePointExplorerService graphSharePointExplorer,
+        BrowserSharePointExplorerService browserSharePointExplorer,
+        ContentIndexService contentIndex,
         AppUpdateService appUpdate,
         AppNotificationService notifications,
         HealthCenterService healthCenter,
@@ -39,6 +41,8 @@ public sealed class AppServices : IDisposable
         Startup = startup;
         GraphSharePoint = graphSharePoint;
         GraphSharePointExplorer = graphSharePointExplorer;
+        BrowserSharePointExplorer = browserSharePointExplorer;
+        ContentIndex = contentIndex;
         AppUpdate = appUpdate;
         Notifications = notifications;
         HealthCenter = healthCenter;
@@ -46,6 +50,8 @@ public sealed class AppServices : IDisposable
         EnterprisePolicy = enterprisePolicy;
         DiagnosticLog = diagnosticLog;
         SupportBundles = supportBundles;
+        LocalDataReset = new LocalDataResetService(paths);
+        LocalDataRuntime = new LocalDataRuntimeRehydrator(LocalDataReset, contentIndex);
     }
 
     public AppDataPaths Paths { get; }
@@ -68,6 +74,10 @@ public sealed class AppServices : IDisposable
 
     public GraphSharePointExplorerService GraphSharePointExplorer { get; }
 
+    public BrowserSharePointExplorerService BrowserSharePointExplorer { get; }
+
+    public ContentIndexService ContentIndex { get; }
+
     public AppUpdateService AppUpdate { get; }
 
     public AppNotificationService Notifications { get; }
@@ -82,9 +92,30 @@ public sealed class AppServices : IDisposable
 
     public SupportBundleService SupportBundles { get; }
 
+    public LocalDataResetService LocalDataReset { get; }
+
+    public LocalDataRuntimeRehydrator LocalDataRuntime { get; }
+
+    public Task RehydrateAfterLocalDataResetAsync(
+        CancellationToken cancellationToken = default) =>
+        LocalDataRuntime.RehydrateAsync(
+            OfflineCache.RehydrateAfterLocalDataResetAsync,
+            cancellationToken);
+
     public static AppServices Create()
     {
+#if DEBUG
+        var testDataDirectory = DebugVisualTestIsolation.DataDirectory;
+        var paths = testDataDirectory is null
+            ? new AppDataPaths()
+            : new AppDataPaths(
+                testDataDirectory,
+                packageWebViewProfilePath:
+                    DebugVisualTestIsolation.PackageWebViewProfileDirectory);
+#else
         var paths = new AppDataPaths();
+#endif
+        new LocalDataResetService(paths).CompletePendingResetOrThrow();
         paths.EnsureCreated();
         var policy = new EnterprisePolicyLoader(paths).Load();
         StartupDiagnostics.Configure(policy.CreateDiagnosticLogOptions());
@@ -93,12 +124,16 @@ public sealed class AppServices : IDisposable
         var authentication = new MsalAuthenticationService(paths, database);
         var browserContent = new SharePointBrowserContentService(database);
         browserContent.ConfigureEnterprisePolicy(policy.Policy);
+        var contentIndex = new ContentIndexService(database);
+        browserContent.ConfigureContentIndex(contentIndex);
         var graphContent = new GraphSharePointContentService(authentication);
         browserContent.ConfigureGraphContent(graphContent);
         var graphExplorer = new GraphSharePointExplorerService(authentication);
         graphExplorer.ConfigureEnterprisePolicy(policy.Policy);
         var graphSharePoint = new GraphSharePointService(authentication);
         graphSharePoint.ConfigureEnterprisePolicy(policy.Policy);
+        var browserExplorer = new BrowserSharePointExplorerService(database, browserContent);
+        browserExplorer.ConfigureEnterprisePolicy(policy.Policy);
         var uploadPayloadStorage = new UploadPayloadStorage(
             paths,
             policy.CreateUploadPayloadStorageOptions());
@@ -126,6 +161,8 @@ public sealed class AppServices : IDisposable
             new StartupService(),
             graphSharePoint,
             graphExplorer,
+            browserExplorer,
+            contentIndex,
             updates,
             notifications,
             new HealthCenterService(database, notifications, updates, offlineCache),
@@ -137,19 +174,32 @@ public sealed class AppServices : IDisposable
 
     public void Dispose()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
         {
             return;
         }
 
-        _disposed = true;
-        UploadQueue.Dispose();
-        VirtualDrive.Dispose();
+        DisposeBestEffort(nameof(VirtualDrive), VirtualDrive.Dispose);
+        DisposeBestEffort(nameof(UploadQueue), UploadQueue.Dispose);
         if (AppUpdate is IDisposable disposableUpdateService)
         {
-            disposableUpdateService.Dispose();
+            DisposeBestEffort(nameof(AppUpdate), disposableUpdateService.Dispose);
         }
 
-        Notifications.Dispose();
+        DisposeBestEffort(nameof(Notifications), Notifications.Dispose);
+    }
+
+    private static void DisposeBestEffort(string serviceName, Action dispose)
+    {
+        try
+        {
+            dispose();
+        }
+        catch (Exception ex)
+        {
+            StartupDiagnostics.Write(
+                $"Could not dispose {serviceName} during application shutdown.",
+                ex);
+        }
     }
 }

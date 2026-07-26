@@ -7,7 +7,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 const string installScript = "Install-EasyShare.ps1";
-const string appPackageName = "EasyShare_1.0.26.0_x64.msix";
+const string appPackageName = "EasyShare_1.0.27.0_x64.msix";
 const string windowsAppRuntimePackageName = "Microsoft.WindowsAppRuntime.2.msix";
 const string machinePrerequisitesArgument = "--machine-prerequisites";
 

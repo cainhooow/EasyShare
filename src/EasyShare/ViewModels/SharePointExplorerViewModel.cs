@@ -18,7 +18,7 @@ public sealed record SharePointExplorerBreadcrumb(
 
 public sealed class SharePointExplorerViewModel : ObservableObject, IDisposable
 {
-    private readonly GraphSharePointExplorerService _service;
+    private ISharePointExplorerService _service;
     private readonly object _operationSync = new();
     private CancellationTokenSource? _activeOperation;
     private long _operationVersion;
@@ -33,9 +33,10 @@ public sealed class SharePointExplorerViewModel : ObservableObject, IDisposable
     private bool _hasError;
     private bool _requiresAuthentication;
     private bool _isForbiddenError;
+    private bool _usesBrowserSession;
     private bool _disposed;
 
-    public SharePointExplorerViewModel(GraphSharePointExplorerService service)
+    public SharePointExplorerViewModel(ISharePointExplorerService service)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         AppText.LanguageChanged += AppText_LanguageChanged;
@@ -174,11 +175,18 @@ public sealed class SharePointExplorerViewModel : ObservableObject, IDisposable
 
     public string ExplorerSubtitle => AppText.Get("ExplorerSubtitle");
 
-    public string ExplorerDiscoveryNoticeTitle => AppText.Get("ExplorerDiscoveryNoticeTitle");
+    public string ExplorerDiscoveryNoticeTitle => AppText.Get(
+        _usesBrowserSession
+            ? "ExplorerBrowserDiscoveryNoticeTitle"
+            : "ExplorerDiscoveryNoticeTitle");
 
-    public string ExplorerDiscoveryNoticeMessage => AppText.Get("ExplorerDiscoveryNoticeMessage");
+    public string ExplorerDiscoveryNoticeMessage => AppText.Get(
+        _usesBrowserSession
+            ? "ExplorerBrowserDiscoveryNoticeMessage"
+            : "ExplorerDiscoveryNoticeMessage");
 
-    public string ExplorerSearchPlaceholder => AppText.Get("ExplorerSearchPlaceholder");
+    public string ExplorerSearchPlaceholder => AppText.Get(
+        _usesBrowserSession ? "ExplorerBrowserSearchPlaceholder" : "ExplorerSearchPlaceholder");
 
     public string ExplorerSitePickerPlaceholder => AppText.Get("ExplorerSitePickerPlaceholder");
 
@@ -200,7 +208,8 @@ public sealed class SharePointExplorerViewModel : ObservableObject, IDisposable
 
     public string ExplorerAuthTitle => AppText.Get("ExplorerAuthTitle");
 
-    public string ExplorerAuthMessage => AppText.Get("ExplorerAuthMessage");
+    public string ExplorerAuthMessage => AppText.Get(
+        _usesBrowserSession ? "ExplorerBrowserAuthMessage" : "ExplorerAuthMessage");
 
     public string ExplorerEmptyTitle => AppText.Get("ExplorerEmptyTitle");
 
@@ -209,6 +218,24 @@ public sealed class SharePointExplorerViewModel : ObservableObject, IDisposable
     public string ExplorerBreadcrumbAutomationName => AppText.Get("ExplorerBreadcrumbAutomationName");
 
     public string ExplorerBusyAutomationName => AppText.Get("ExplorerBusyAutomationName");
+
+    public void ConfigureService(ISharePointExplorerService service, bool usesBrowserSession)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(service);
+        if (ReferenceEquals(_service, service) && _usesBrowserSession == usesBrowserSession)
+        {
+            return;
+        }
+
+        _service = service;
+        _usesBrowserSession = usesBrowserSession;
+        OnPropertyChanged(nameof(ExplorerDiscoveryNoticeTitle));
+        OnPropertyChanged(nameof(ExplorerDiscoveryNoticeMessage));
+        OnPropertyChanged(nameof(ExplorerSearchPlaceholder));
+        OnPropertyChanged(nameof(ExplorerAuthMessage));
+        ResetForAuthenticationChange(requiresAuthentication: false);
+    }
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {

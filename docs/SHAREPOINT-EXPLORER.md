@@ -2,13 +2,13 @@
 
 ## Objetivo
 
-O Explorador SharePoint elimina a necessidade de localizar e colar URLs. Depois do login delegado pelo Client ID, o EasyShare apresenta os sites descobertos para a conta, suas bibliotecas e as pastas disponíveis. A pasta atual pode ser fixada na unidade virtual com uma única ação.
+O Explorador SharePoint elimina a necessidade de localizar e colar URLs. Depois do login delegado pelo Client ID, o EasyShare apresenta os sites descobertos para a conta, suas bibliotecas e as pastas disponíveis. Na autenticação integrada pela WebView, o mesmo controle navega as rotas já configuradas e autenticadas. A pasta atual pode ser fixada na unidade virtual com uma única ação.
 
 Fluxo principal:
 
 `Entrar → Sites → Bibliotecas → Pastas → Fixar`
 
-A entrada manual de URL continua disponível apenas como alternativa para sites que ainda não apareceram na pesquisa do Microsoft 365. No modo Graph, essa URL é validada contra a política corporativa e resolvida para `siteId`, `driveId` e `itemId` antes de a rota ser persistida; não existe fallback silencioso para cookies do WebView.
+A entrada manual de URL continua disponível como alternativa para sites que ainda não apareceram na pesquisa do Microsoft 365. No modo Graph, essa URL é validada contra a política corporativa e resolvida para `siteId`, `driveId` e `itemId` antes de a rota ser persistida. No modo WebView, não há fallback para Graph: o Explorer mostra somente cada rota conhecida que foi testada com sucesso na sessão atual.
 
 ## Autorização
 
@@ -26,6 +26,13 @@ As políticas do tenant podem exigir consentimento administrativo mesmo quando a
 O app não solicita `Sites.ReadWrite.All`: a descoberta precisa apenas de leitura de sites, enquanto `Files.ReadWrite.All` cobre as operações nos arquivos que o usuário já pode acessar.
 
 ## Descoberta e navegação
+
+O provedor ativo é explícito:
+
+- Graph: sites seguidos, pesquisa de sites, bibliotecas e IDs estáveis.
+- WebView: rotas já fixadas/testadas, com arquivos e pastas lidos pela API REST do SharePoint usando apenas cookies mantidos em memória.
+
+O modo WebView não promete descoberta completa do tenant e não converte URLs em identidades Graph artificiais.
 
 - Sites seguidos: `GET /me/followedSites`.
 - Descoberta inicial best-effort: `GET /sites?search=*`.
@@ -68,3 +75,7 @@ A tela suporta tema claro, escuro e alto contraste, navegação por teclado, nom
 ## Limitação da plataforma
 
 O Microsoft Graph não oferece uma enumeração delegada garantidamente exaustiva de todos os sites do tenant. A experiência combina sites seguidos, busca ampla, busca explícita e cache para apresentar os recursos descobertos aos quais o usuário tem acesso. A interface comunica essa condição sem prometer uma lista absoluta do tenant.
+
+## Índice e histórico local
+
+A busca inteligente percorre apenas rotas fixadas, grava metadados (nome, caminho, tipo, tamanho e data) no SQLite local e nunca envia esses dados para um serviço de IA. O ranking combina correspondência textual, frequência e recência de acesso. Todas as linhas usam um escopo derivado da identidade Graph ou do usuário atual do SharePoint REST; quando não existe identidade validada, resultados antigos não são exibidos.
