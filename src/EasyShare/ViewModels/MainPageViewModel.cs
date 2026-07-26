@@ -81,7 +81,62 @@ public sealed class MainPageViewModel : ObservableObject
 
     public int ConnectedRouteCount => Routes.Count(route => route.IsConnected);
 
-    public int PendingUploadCount => SyncJobs.Count(job => job.State is SyncJobState.Waiting or SyncJobState.Uploading or SyncJobState.Failed or SyncJobState.Conflict);
+    public int WaitingUploadCount =>
+        SyncJobs.Count(job =>
+            job.State is SyncJobState.PersistingLocal or SyncJobState.StoredLocally or SyncJobState.Waiting);
+
+    public int UploadingUploadCount =>
+        SyncJobs.Count(job => job.State is SyncJobState.Uploading or SyncJobState.VerifyingRemote);
+
+    public int AttentionUploadCount => SyncJobs.Count(job => job.State is SyncJobState.Failed or SyncJobState.Conflict);
+
+    public int CompletedUploadCount => SyncJobs.Count(job => job.State == SyncJobState.Completed);
+
+    public int DiscardedUploadCount => SyncJobs.Count(job => job.State == SyncJobState.Discarded);
+
+    public int PendingUploadCount => WaitingUploadCount + UploadingUploadCount + AttentionUploadCount;
+
+    public int QueueBadgeValue => PendingUploadCount;
+
+    public Visibility QueueBadgeVisibility =>
+        PendingUploadCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+    public bool QueueStripIsOpen => SyncJobs.Count > 0;
+
+    public InfoBarSeverity QueueInfoSeverity =>
+        AttentionUploadCount > 0
+            ? InfoBarSeverity.Warning
+            : UploadingUploadCount > 0 || WaitingUploadCount > 0
+                ? InfoBarSeverity.Informational
+                : InfoBarSeverity.Success;
+
+    public string QueueSummaryTitle =>
+        AttentionUploadCount > 0
+            ? AppText.Format("QueueAttentionTitleFormat", AttentionUploadCount)
+            : UploadingUploadCount > 0
+                ? AppText.Format("QueueUploadingTitleFormat", UploadingUploadCount)
+                : WaitingUploadCount > 0
+                    ? AppText.Format("QueueWaitingTitleFormat", WaitingUploadCount)
+                    : CompletedUploadCount > 0 && DiscardedUploadCount == 0
+                        ? AppText.Get("QueueAllSentTitle")
+                        : AppText.Get("QueueNoPendingTitle");
+
+    public string QueueSummaryText =>
+        AppText.Format(
+            "QueueCountsFormat",
+            WaitingUploadCount,
+            UploadingUploadCount,
+            AttentionUploadCount,
+            CompletedUploadCount,
+            DiscardedUploadCount);
+
+    public string QueueSummaryAutomationName =>
+        AppText.Format("QueueSummaryAutomationFormat", QueueSummaryTitle, QueueSummaryText);
+
+    public string SyncNavigationAutomationName =>
+        PendingUploadCount > 0
+            ? AppText.Format("QueueNavigationAutomationFormat", PendingUploadCount)
+            : AppText.Get("QueueNavigationAutomationIdle");
 
     public string DatabasePath => _database.DatabasePath;
 
@@ -686,15 +741,20 @@ public sealed class MainPageViewModel : ObservableObject
             RefreshLocalizedOptions();
             _updateStatus = CreateIdleUpdateStatus();
             var requestedStartup = _settings.StartWithWindows;
-            var actualStartup = await _startupService.IsEnabledAsync();
-            if (requestedStartup != actualStartup)
+            if (!DebugVisualTestIsolation.IsActive)
             {
-                actualStartup = await _startupService.SetEnabledAsync(requestedStartup, _settings.StartMinimized);
-            }
+                var actualStartup = await _startupService.IsEnabledAsync();
+                if (requestedStartup != actualStartup)
+                {
+                    actualStartup = await _startupService.SetEnabledAsync(
+                        requestedStartup,
+                        _settings.StartMinimized);
+                }
 
-            // The persisted preference is authoritative. If Windows refuses a change,
-            // do not silently turn a disabled preference back on during startup.
-            _settings.StartWithWindows = requestedStartup && actualStartup;
+                // The persisted preference is authoritative. If Windows refuses a change,
+                // do not silently turn a disabled preference back on during startup.
+                _settings.StartWithWindows = requestedStartup && actualStartup;
+            }
 
             _isBrowserSessionVerified = false;
             if (IsBrowserSessionMode)
@@ -740,7 +800,22 @@ public sealed class MainPageViewModel : ObservableObject
             SyncJobs.Insert(0, job);
         }
 
-        OnPropertyChanged(nameof(PendingUploadCount));
+        RefreshQueuePresentationState();
+        OnPropertyChanged(nameof(EmptySyncVisibility));
+        OnPropertyChanged(nameof(SyncListVisibility));
+    }
+
+    public void RemoveCompletedSyncJobs()
+    {
+        for (var index = SyncJobs.Count - 1; index >= 0; index--)
+        {
+            if (SyncJobs[index].State == SyncJobState.Completed)
+            {
+                SyncJobs.RemoveAt(index);
+            }
+        }
+
+        RefreshQueuePresentationState();
         OnPropertyChanged(nameof(EmptySyncVisibility));
         OnPropertyChanged(nameof(SyncListVisibility));
     }
@@ -802,7 +877,14 @@ public sealed class MainPageViewModel : ObservableObject
             {
                 ApplyEnterprisePolicy();
                 var requestedStartWithWindows = StartWithWindows;
-                _settings.StartWithWindows = await _startupService.SetEnabledAsync(requestedStartWithWindows, _settings.StartMinimized);
+                _settings.StartWithWindows = requestedStartWithWindows;
+                if (!DebugVisualTestIsolation.IsActive)
+                {
+                    _settings.StartWithWindows = await _startupService.SetEnabledAsync(
+                        requestedStartWithWindows,
+                        _settings.StartMinimized);
+                }
+
                 await _database.SaveSettingsAsync(_settings);
                 _persistedSettings = SetupWizardAdvisor.CloneSettings(_settings);
                 AppText.SaveStartupLanguageCode(_settings.LanguageCode);
@@ -898,23 +980,30 @@ public sealed class MainPageViewModel : ObservableObject
                 warningMessage = AppText.Get("WizardReconcileWarning");
             }
 
-            try
+            if (DebugVisualTestIsolation.IsActive)
             {
-                startupEnabled = await _startupService.SetEnabledAsync(
-                    startupRequested,
-                    _settings.StartMinimized);
+                startupEnabled = startupRequested;
             }
-            catch (Exception ex)
+            else
             {
-                StartupDiagnostics.Write("Setup wizard startup reconciliation failed.", ex);
-                warningMessage ??= AppText.Get("WizardReconcileWarning");
                 try
                 {
-                    startupEnabled = await _startupService.IsEnabledAsync();
+                    startupEnabled = await _startupService.SetEnabledAsync(
+                        startupRequested,
+                        _settings.StartMinimized);
                 }
-                catch (Exception statusException)
+                catch (Exception ex)
                 {
-                    StartupDiagnostics.Write("Could not read Windows startup status.", statusException);
+                    StartupDiagnostics.Write("Setup wizard startup reconciliation failed.", ex);
+                    warningMessage ??= AppText.Get("WizardReconcileWarning");
+                    try
+                    {
+                        startupEnabled = await _startupService.IsEnabledAsync();
+                    }
+                    catch (Exception statusException)
+                    {
+                        StartupDiagnostics.Write("Could not read Windows startup status.", statusException);
+                    }
                 }
             }
 
@@ -1165,7 +1254,11 @@ public sealed class MainPageViewModel : ObservableObject
         await RunBusyAsync(async () =>
         {
             await _authentication.SignOutAsync();
-            await _startupService.SetEnabledAsync(false, startMinimized: false);
+            if (!DebugVisualTestIsolation.IsActive)
+            {
+                await _startupService.SetEnabledAsync(false, startMinimized: false);
+            }
+
             await _database.ResetAsync();
             _settings = new AppSettings();
             ApplyEnterprisePolicy();
@@ -1626,7 +1719,7 @@ public sealed class MainPageViewModel : ObservableObject
         OnPropertyChanged(nameof(CanOpenInExplorer));
         OnPropertyChanged(nameof(RouteCount));
         OnPropertyChanged(nameof(ConnectedRouteCount));
-        OnPropertyChanged(nameof(PendingUploadCount));
+        RefreshQueuePresentationState();
         OnPropertyChanged(nameof(DatabasePath));
         OnPropertyChanged(nameof(AuthenticationModeIndex));
         OnPropertyChanged(nameof(IsBrowserSessionMode));
@@ -1681,6 +1774,24 @@ public sealed class MainPageViewModel : ObservableObject
         OnPropertyChanged(nameof(EmptySyncVisibility));
         OnPropertyChanged(nameof(SyncListVisibility));
         OnPropertyChanged(nameof(ShouldShowSetupWizard));
+    }
+
+    private void RefreshQueuePresentationState()
+    {
+        OnPropertyChanged(nameof(WaitingUploadCount));
+        OnPropertyChanged(nameof(UploadingUploadCount));
+        OnPropertyChanged(nameof(AttentionUploadCount));
+        OnPropertyChanged(nameof(CompletedUploadCount));
+        OnPropertyChanged(nameof(DiscardedUploadCount));
+        OnPropertyChanged(nameof(PendingUploadCount));
+        OnPropertyChanged(nameof(QueueBadgeValue));
+        OnPropertyChanged(nameof(QueueBadgeVisibility));
+        OnPropertyChanged(nameof(QueueStripIsOpen));
+        OnPropertyChanged(nameof(QueueInfoSeverity));
+        OnPropertyChanged(nameof(QueueSummaryTitle));
+        OnPropertyChanged(nameof(QueueSummaryText));
+        OnPropertyChanged(nameof(QueueSummaryAutomationName));
+        OnPropertyChanged(nameof(SyncNavigationAutomationName));
     }
 
     private void RefreshUpdateState()

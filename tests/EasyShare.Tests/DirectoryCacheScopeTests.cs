@@ -107,6 +107,72 @@ public sealed class DirectoryCacheScopeTests
         Assert.NotNull(database.TryGetDirectoryCache(AccountScopeB, routeId, "Plans", CacheLifetime));
     }
 
+    [Fact]
+    public async Task DirectoryDeleteInvalidatesPathParentAndDescendantsAcrossEveryScope()
+    {
+        using var environment = new TestDirectory();
+        var database = new LocalDatabase(CreatePaths(environment));
+        await database.InitializeAsync();
+        var routeId = Guid.NewGuid();
+        var otherRouteId = Guid.NewGuid();
+
+        foreach (var scope in new[] { AccountScopeA, AccountScopeB })
+        {
+            database.SaveDirectoryCache(scope, routeId, string.Empty, [CreateItem("Root.docx")]);
+            database.SaveDirectoryCache(scope, routeId, "Reports", [CreateItem("2026")]);
+            database.SaveDirectoryCache(scope, routeId, "Reports/2026", [CreateItem("July")]);
+            database.SaveDirectoryCache(scope, routeId, "Reports/2026/July", [CreateItem("Close.docx")]);
+            database.SaveDirectoryCache(scope, routeId, "Reports/2025", [CreateItem("Keep.docx")]);
+            database.SaveDirectoryCache(scope, otherRouteId, "Reports/2026", [CreateItem("Other.docx")]);
+        }
+
+        database.InvalidateDeletePathDirectoryCache(routeId, "Reports/2026", isDirectory: true);
+
+        foreach (var scope in new[] { AccountScopeA, AccountScopeB })
+        {
+            Assert.Null(database.TryGetDirectoryCache(scope, routeId, "Reports", CacheLifetime));
+            Assert.Null(database.TryGetDirectoryCache(scope, routeId, "Reports/2026", CacheLifetime));
+            Assert.Null(database.TryGetDirectoryCache(scope, routeId, "Reports/2026/July", CacheLifetime));
+            Assert.NotNull(database.TryGetDirectoryCache(scope, routeId, string.Empty, CacheLifetime));
+            Assert.NotNull(database.TryGetDirectoryCache(scope, routeId, "Reports/2025", CacheLifetime));
+            Assert.NotNull(database.TryGetDirectoryCache(scope, otherRouteId, "Reports/2026", CacheLifetime));
+        }
+    }
+
+    [Fact]
+    public async Task FileDeleteInvalidatesItemAndParentAcrossEveryScopeWithoutRemovingSiblingDirectories()
+    {
+        using var environment = new TestDirectory();
+        var database = new LocalDatabase(CreatePaths(environment));
+        await database.InitializeAsync();
+        var routeId = Guid.NewGuid();
+
+        foreach (var scope in new[] { AccountScopeA, AccountScopeB })
+        {
+            database.SaveDirectoryCache(scope, routeId, "Reports", [CreateItem("Budget.docx")]);
+            database.SaveDirectoryCache(scope, routeId, "Reports/Budget.docx", [CreateItem("Stale.docx")]);
+            database.SaveDirectoryCache(scope, routeId, "Reports/Budget.docx/Unexpected", [CreateItem("Keep.docx")]);
+            database.SaveDirectoryCache(scope, routeId, "Reports/Plans", [CreateItem("Keep.docx")]);
+        }
+
+        database.InvalidateDeletePathDirectoryCache(
+            routeId,
+            @"\Reports\Budget.docx\",
+            isDirectory: false);
+
+        foreach (var scope in new[] { AccountScopeA, AccountScopeB })
+        {
+            Assert.Null(database.TryGetDirectoryCache(scope, routeId, "Reports", CacheLifetime));
+            Assert.Null(database.TryGetDirectoryCache(scope, routeId, "Reports/Budget.docx", CacheLifetime));
+            Assert.NotNull(database.TryGetDirectoryCache(
+                scope,
+                routeId,
+                "Reports/Budget.docx/Unexpected",
+                CacheLifetime));
+            Assert.NotNull(database.TryGetDirectoryCache(scope, routeId, "Reports/Plans", CacheLifetime));
+        }
+    }
+
     private static void SaveTwoScopedPaths(LocalDatabase database, Guid routeId)
     {
         database.SaveDirectoryCache(AccountScopeA, routeId, "Reports", [CreateItem("Alpha.docx")]);

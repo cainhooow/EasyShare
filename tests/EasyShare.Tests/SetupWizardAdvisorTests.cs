@@ -447,6 +447,7 @@ public sealed class SetupWizardAdvisorTests
             NotifySessionExpired = false,
             NotifyDriveDisconnected = false,
             NotifyUpdateReady = false,
+            CloseBehavior = AppCloseBehavior.Exit,
             SetupWizardCompleted = false,
             SetupWizardCompletedVersion = 0
         };
@@ -502,6 +503,7 @@ public sealed class SetupWizardAdvisorTests
         Assert.False(result.NotifySessionExpired);
         Assert.False(result.NotifyDriveDisconnected);
         Assert.False(result.NotifyUpdateReady);
+        Assert.Equal(AppCloseBehavior.Exit, result.CloseBehavior);
         Assert.False(current.SetupWizardCompleted);
         Assert.Equal(0, current.SetupWizardCompletedVersion);
         Assert.Equal("original-client", current.ClientId);

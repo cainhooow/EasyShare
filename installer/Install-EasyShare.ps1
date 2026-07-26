@@ -10,7 +10,7 @@ $ErrorActionPreference = "Stop"
 
 $root = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $isIncrementalPatchInstall = -not [string]::IsNullOrWhiteSpace($PackagePath)
-$defaultPackageName = "EasyShare_1.0.26.0_x64.msix"
+$defaultPackageName = "EasyShare_1.0.27.0_x64.msix"
 $package = if ([string]::IsNullOrWhiteSpace($PackagePath)) {
     Join-Path $root $defaultPackageName
 } else {

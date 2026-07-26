@@ -12,7 +12,7 @@
   <Identity
     Name="ArchGTi.Tech.EasyPointShare"
     Publisher="CN=EE61A1E4-12AD-426A-AE25-03DBAA7F7171"
-    Version="1.0.26.0" />
+    Version="1.0.27.0" />
 
   <Properties>
     <DisplayName>EasyPointShare</DisplayName>

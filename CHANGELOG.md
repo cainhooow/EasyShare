@@ -4,6 +4,22 @@ Todas as mudanças relevantes do EasyShare devem ser registradas neste arquivo a
 
 ## [Não publicado]
 
+## [1.0.27.0] - 2026-07-26
+
+### Fila, recuperação e saída segura
+
+- Mostra estados, contadores, progresso real ou indeterminado, próxima tentativa e ações recomendadas de forma coerente no Explorer, Início, Envios e bandeja.
+- Só informa 100% e disponibilidade no SharePoint depois da confirmação remota, retomando operações após rede ou sessão voltar.
+- Oferece recuperação após falhas, cópia local, detalhes técnicos recolhidos e limpeza segura do histórico concluído.
+- Protege payloads ao remover pastas, fechar a janela ou encerrar o aplicativo e preserva a fila após crash ou reabertura.
+
+### Exclusão no SharePoint
+
+- Persiste a intenção de exclusão antes de confirmar sucesso ao Windows e mantém um tombstone enquanto a operação remota estiver pendente.
+- Executa exclusões Graph e REST com confirmação, retentativa e mensagens amigáveis para falhas de permissão, rede ou servidor.
+- Impede que um upload tardio ou de resultado ambíguo faça o arquivo reaparecer depois da exclusão.
+- Invalida caches de arquivo, diretório, conteúdo offline e índice em todos os escopos da conta após a confirmação remota.
+
 ### Privacidade e reset local
 
 - Faz inventário e apaga sessão, preferências, rotas, banco, fila e payloads, cache offline, índice, chaves, perfil WebView2 e diagnósticos sob controle do aplicativo.

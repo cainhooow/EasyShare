@@ -364,6 +364,49 @@ public sealed class ContentIndexServiceTests
         Assert.Empty(await service.GetMostAccessedAsync("scope-b"));
     }
 
+    [Fact]
+    public async Task RemovingDirectoryItemPurgesDescendantsAndAccessHistoryAcrossScopes()
+    {
+        using var environment = new TestDirectory();
+        var (_, service, _) = CreateService(environment);
+        var routeId = Guid.NewGuid();
+        var directory = new ContentIndexItem(
+            routeId,
+            "Equipe",
+            "Projects/Old",
+            "Old",
+            IsDirectory: true);
+        var descendant = new ContentIndexItem(
+            routeId,
+            "Equipe",
+            "Projects/Old/report.docx",
+            "report.docx",
+            IsDirectory: false);
+        var sibling = new ContentIndexItem(
+            routeId,
+            "Equipe",
+            "Projects/keep.docx",
+            "keep.docx",
+            IsDirectory: false);
+        await service.UpsertItemsAsync("scope-a", [directory, descendant, sibling]);
+        await service.UpsertItemsAsync("scope-b", [directory, descendant, sibling]);
+        await service.RecordAccessAsync("scope-a", routeId, descendant.RelativePath);
+        await service.RecordAccessAsync("scope-b", routeId, descendant.RelativePath);
+
+        var removed = await service.RemoveItemFromAllScopesAsync(
+            routeId,
+            directory.RelativePath,
+            isDirectory: true);
+
+        Assert.Equal(4, removed);
+        Assert.Empty(await service.SearchAsync("scope-a", "report"));
+        Assert.Empty(await service.SearchAsync("scope-b", "report"));
+        Assert.Empty(await service.GetMostAccessedAsync("scope-a"));
+        Assert.Empty(await service.GetMostAccessedAsync("scope-b"));
+        Assert.Single(await service.SearchAsync("scope-a", "keep"));
+        Assert.Single(await service.SearchAsync("scope-b", "keep"));
+    }
+
     private static (LocalDatabase Database, ContentIndexService Service, ManualTimeProvider Clock)
         CreateService(TestDirectory environment)
     {

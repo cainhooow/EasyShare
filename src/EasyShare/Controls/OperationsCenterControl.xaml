@@ -3,51 +3,207 @@
     x:Class="EasyShare.Controls.OperationsCenterControl"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:EasyShare.Controls"
     xmlns:models="using:EasyShare.Models"
     xmlns:resources="using:EasyShare.Resources">
     <UserControl.Resources>
         <resources:TextProvider x:Key="Text" />
+        <local:BooleanToVisibilityConverter x:Key="BooleanToVisibility" />
+        <local:StringToVisibilityConverter x:Key="StringToVisibility" />
     </UserControl.Resources>
 
     <TabView
         x:Name="OperationsTabs"
         IsAddTabButtonVisible="False"
         TabCloseRequested="TabView_TabCloseRequested">
-        <TabViewItem Header="{Binding Source={StaticResource Text}, Path=OperationsTransfersTab}" IsClosable="False">
-            <Grid Padding="0,12,0,0">
-                <ListView ItemsSource="{x:Bind ViewModel.Transfers, Mode=OneWay}" SelectionMode="None">
-                    <ListView.ItemTemplate>
-                        <DataTemplate x:DataType="models:SyncJob">
-                            <Grid Padding="12,10" ColumnSpacing="12">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="190" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Spacing="3">
-                                    <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="{x:Bind FileName}" />
-                                    <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind RouteDisplayName}" />
-                                    <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind UpdatedText}" />
-                                    <TextBlock
-                                        Foreground="{ThemeResource SystemFillColorCriticalBrush}"
-                                        Text="{x:Bind LastError}"
-                                        TextWrapping="Wrap" />
-                                </StackPanel>
-                                <StackPanel Grid.Column="1" Spacing="6">
-                                    <TextBlock Text="{x:Bind StateText}" />
-                                    <ProgressBar Maximum="100" Value="{x:Bind Progress}" />
-                                    <Button
-                                        Click="RetryButton_Click"
-                                        Content="{Binding Source={StaticResource Text}, Path=ActionRetryUpload}"
-                                        Tag="{x:Bind Id}" />
-                                </StackPanel>
-                            </Grid>
-                        </DataTemplate>
-                    </ListView.ItemTemplate>
-                </ListView>
+        <TabViewItem Header="{x:Bind ViewModel.TransfersTabHeader, Mode=OneWay}" IsClosable="False">
+            <Grid Padding="0,12,0,0" RowSpacing="8">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <TextBlock
+                    Margin="12,0"
+                    AutomationProperties.LiveSetting="Polite"
+                    Style="{ThemeResource BodyTextBlockStyle}"
+                    Text="{x:Bind ViewModel.TransfersSummary, Mode=OneWay}"
+                    TextWrapping="Wrap" />
+
+                <CommandBar
+                    Grid.Row="1"
+                    Background="Transparent"
+                    DefaultLabelPosition="Right"
+                    IsDynamicOverflowEnabled="True">
+                    <AppBarButton
+                        AutomationProperties.Name="{x:Bind ViewModel.ClearCompletedAutomationName, Mode=OneWay}"
+                        Click="ClearCompletedButton_Click"
+                        IsEnabled="{x:Bind ViewModel.HasCompleted, Mode=OneWay}"
+                        Label="{Binding Source={StaticResource Text}, Path=ActionClearCompleted}"
+                        Visibility="{x:Bind ViewModel.HasCompleted, Mode=OneWay, Converter={StaticResource BooleanToVisibility}}">
+                        <AppBarButton.Icon>
+                            <SymbolIcon Symbol="Clear" />
+                        </AppBarButton.Icon>
+                    </AppBarButton>
+                </CommandBar>
+
+                <Grid Grid.Row="2">
+                    <ListView
+                        AutomationProperties.Name="{x:Bind ViewModel.TransfersSummary, Mode=OneWay}"
+                        ItemsSource="{x:Bind ViewModel.Transfers, Mode=OneWay}"
+                        SelectionMode="None"
+                        Visibility="{x:Bind ViewModel.TransfersVisibility, Mode=OneWay}">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="models:SyncJob">
+                                <Grid
+                                    x:Name="TransferLayout"
+                                    Padding="12,10"
+                                    ColumnSpacing="12"
+                                    RowSpacing="8"
+                                    AutomationProperties.Name="{x:Bind AccessibilityText}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <VisualStateManager.VisualStateGroups>
+                                        <VisualStateGroup>
+                                            <VisualState x:Name="NarrowTransfer">
+                                                <VisualState.StateTriggers>
+                                                    <AdaptiveTrigger MinWindowWidth="0" />
+                                                </VisualState.StateTriggers>
+                                            </VisualState>
+                                            <VisualState x:Name="WideTransfer">
+                                                <VisualState.StateTriggers>
+                                                    <AdaptiveTrigger MinWindowWidth="760" />
+                                                </VisualState.StateTriggers>
+                                                <VisualState.Setters>
+                                                    <Setter Target="TransferPrimary.(Grid.ColumnSpan)" Value="1" />
+                                                    <Setter Target="TransferActions.(Grid.Row)" Value="0" />
+                                                    <Setter Target="TransferActions.(Grid.Column)" Value="1" />
+                                                    <Setter Target="TransferActions.(Grid.ColumnSpan)" Value="1" />
+                                                    <Setter Target="TransferActions.HorizontalAlignment" Value="Right" />
+                                                    <Setter Target="TransferActions.VerticalAlignment" Value="Center" />
+                                                </VisualState.Setters>
+                                            </VisualState>
+                                        </VisualStateGroup>
+                                    </VisualStateManager.VisualStateGroups>
+
+                                    <StackPanel
+                                        x:Name="TransferPrimary"
+                                        Grid.ColumnSpan="2"
+                                        Spacing="4">
+                                        <TextBlock
+                                            Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                            Text="{x:Bind FileName}"
+                                            TextWrapping="Wrap" />
+                                        <TextBlock
+                                            Style="{ThemeResource CaptionTextBlockStyle}"
+                                            Text="{x:Bind RouteDisplayName}"
+                                            TextWrapping="Wrap" />
+                                        <TextBlock
+                                            AutomationProperties.LiveSetting="Polite"
+                                            Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                            Text="{x:Bind StateText}"
+                                            TextWrapping="Wrap" />
+                                        <ProgressBar
+                                            AutomationProperties.Name="{x:Bind ProgressText}"
+                                            IsIndeterminate="{x:Bind IsProgressIndeterminate}"
+                                            Maximum="100"
+                                            Value="{x:Bind Progress}"
+                                            Visibility="{Binding ProgressText, Converter={StaticResource StringToVisibility}}" />
+                                        <TextBlock
+                                            AutomationProperties.LiveSetting="Polite"
+                                            Style="{ThemeResource CaptionTextBlockStyle}"
+                                            Text="{x:Bind ProgressText}"
+                                            TextWrapping="Wrap"
+                                            Visibility="{Binding ProgressText, Converter={StaticResource StringToVisibility}}" />
+                                        <TextBlock
+                                            AutomationProperties.LiveSetting="Polite"
+                                            Style="{ThemeResource CaptionTextBlockStyle}"
+                                            Text="{x:Bind NextAttemptText}"
+                                            TextWrapping="Wrap"
+                                            Visibility="{Binding NextAttemptText, Converter={StaticResource StringToVisibility}}" />
+                                        <TextBlock
+                                            AutomationProperties.LiveSetting="Assertive"
+                                            Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                            Text="{x:Bind FailureSummary}"
+                                            TextWrapping="Wrap"
+                                            Visibility="{Binding FailureSummary, Converter={StaticResource StringToVisibility}}" />
+                                        <TextBlock
+                                            AutomationProperties.LiveSetting="Polite"
+                                            Text="{x:Bind RecommendedActionText}"
+                                            TextWrapping="Wrap"
+                                            Visibility="{Binding RecommendedActionText, Converter={StaticResource StringToVisibility}}" />
+                                        <TextBlock
+                                            Style="{ThemeResource CaptionTextBlockStyle}"
+                                            Text="{x:Bind UpdatedText}" />
+                                    </StackPanel>
+
+                                    <CommandBar
+                                        x:Name="TransferActions"
+                                        Grid.Row="1"
+                                        Grid.ColumnSpan="2"
+                                        HorizontalAlignment="Left"
+                                        Background="Transparent"
+                                        DefaultLabelPosition="Right"
+                                        IsDynamicOverflowEnabled="True">
+                                        <AppBarButton
+                                            AutomationProperties.Name="{x:Bind RetryAutomationName}"
+                                            Click="RetryButton_Click"
+                                            IsEnabled="{x:Bind CanRetry}"
+                                            Label="{Binding Source={StaticResource Text}, Path=ActionTryNow}"
+                                            Tag="{x:Bind Id}"
+                                            Visibility="{Binding CanRetry, Converter={StaticResource BooleanToVisibility}}">
+                                            <AppBarButton.Icon>
+                                                <SymbolIcon Symbol="Refresh" />
+                                            </AppBarButton.Icon>
+                                        </AppBarButton>
+                                        <AppBarButton
+                                            AutomationProperties.Name="{x:Bind ExportAutomationName}"
+                                            Click="ExportButton_Click"
+                                            IsEnabled="{x:Bind CanExport}"
+                                            Label="{Binding Source={StaticResource Text}, Path=ActionSaveLocalCopy}"
+                                            Tag="{x:Bind Id}"
+                                            Visibility="{Binding CanExport, Converter={StaticResource BooleanToVisibility}}">
+                                            <AppBarButton.Icon>
+                                                <SymbolIcon Symbol="Save" />
+                                            </AppBarButton.Icon>
+                                        </AppBarButton>
+                                        <AppBarButton
+                                            AutomationProperties.Name="{x:Bind DetailsAutomationName}"
+                                            Click="DetailsButton_Click"
+                                            IsEnabled="{x:Bind CanShowDetails}"
+                                            Label="{Binding Source={StaticResource Text}, Path=ActionViewDetails}"
+                                            Tag="{x:Bind Id}"
+                                            Visibility="{Binding CanShowDetails, Converter={StaticResource BooleanToVisibility}}">
+                                            <AppBarButton.Icon>
+                                                <SymbolIcon Symbol="Document" />
+                                            </AppBarButton.Icon>
+                                        </AppBarButton>
+                                    </CommandBar>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+
+                    <InfoBar
+                        Margin="12,4"
+                        IsClosable="False"
+                        IsOpen="True"
+                        Message="{Binding Source={StaticResource Text}, Path=OperationsEmptyMessage}"
+                        Severity="Informational"
+                        Title="{Binding Source={StaticResource Text}, Path=OperationsEmptyTitle}"
+                        Visibility="{x:Bind ViewModel.EmptyTransfersVisibility, Mode=OneWay}" />
+                </Grid>
             </Grid>
         </TabViewItem>
 
-        <TabViewItem Header="{Binding Source={StaticResource Text}, Path=OperationsConflictsTab}" IsClosable="False">
+        <TabViewItem Header="{x:Bind ViewModel.ConflictsTabHeader, Mode=OneWay}" IsClosable="False">
             <Grid Padding="0,12,0,0">
                 <ListView ItemsSource="{x:Bind ViewModel.Conflicts, Mode=OneWay}" SelectionMode="None">
                     <ListView.ItemTemplate>
@@ -60,7 +216,7 @@
                                 <StackPanel Spacing="3">
                                     <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="{x:Bind FileName}" />
                                     <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind RouteDisplayName}" />
-                                    <TextBlock Text="{x:Bind LastError}" TextWrapping="Wrap" />
+                                    <TextBlock Text="{x:Bind FailureSummary}" TextWrapping="Wrap" />
                                 </StackPanel>
                                 <CommandBar
                                     Grid.Column="1"
@@ -68,18 +224,22 @@
                                     DefaultLabelPosition="Collapsed"
                                     IsDynamicOverflowEnabled="True">
                                     <AppBarButton
+                                        AutomationProperties.Name="{x:Bind ExportAutomationName}"
                                         Click="ExportConflictButton_Click"
                                         Label="{Binding Source={StaticResource Text}, Path=ActionSaveLocalCopy}"
-                                        Tag="{x:Bind Id}">
+                                        Tag="{x:Bind Id}"
+                                        Visibility="{Binding CanExport, Converter={StaticResource BooleanToVisibility}}">
                                         <AppBarButton.Icon><SymbolIcon Symbol="Save" /></AppBarButton.Icon>
                                     </AppBarButton>
                                     <AppBarButton
+                                        AutomationProperties.Name="{x:Bind UseRemoteAutomationName}"
                                         Click="DiscardConflictButton_Click"
                                         Label="{Binding Source={StaticResource Text}, Path=ActionUseRemoteVersion}"
                                         Tag="{x:Bind Id}">
                                         <AppBarButton.Icon><SymbolIcon Symbol="Download" /></AppBarButton.Icon>
                                     </AppBarButton>
                                     <AppBarButton
+                                        AutomationProperties.Name="{x:Bind ReplaceRemoteAutomationName}"
                                         Click="ReplaceRemoteButton_Click"
                                         Label="{Binding Source={StaticResource Text}, Path=ActionReplaceRemote}"
                                         Tag="{x:Bind Id}">

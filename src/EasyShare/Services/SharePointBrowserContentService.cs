@@ -14,7 +14,13 @@ public enum UploadAttemptState
     Conflict
 }
 
-public sealed record UploadAttemptResult(UploadAttemptState State, string? Error = null);
+public sealed record UploadAttemptResult(
+    UploadAttemptState State,
+    string? Error = null,
+    RemoteUploadReceipt? Receipt = null,
+    SyncFailureKind FailureKind = SyncFailureKind.Unknown,
+    string? TechnicalDetails = null,
+    bool IsCommitAmbiguous = false);
 
 public interface ISharePointContentTransfer
 {
@@ -29,6 +35,13 @@ public interface ISharePointContentTransfer
         string relativePath,
         Stream content,
         DateTimeOffset? expectedModifiedAt,
+        CancellationToken cancellationToken = default,
+        IProgress<UploadTransferProgress>? progress = null);
+
+    Task<RemoteDeleteAttemptResult> TryDeleteItemAsync(
+        DriveRoute route,
+        string relativePath,
+        bool isDirectory,
         CancellationToken cancellationToken = default);
 }
 
@@ -46,7 +59,11 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
     private readonly ConcurrentDictionary<string, DateTimeOffset> _directoryAccessDebounce = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, DirectoryObservation> _pendingDirectoryObservations =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, DeleteTombstone> _deleteTombstones =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly SemaphoreSlim _deleteTombstoneLoadGate = new(1, 1);
     private int _directoryObservationPumpActive;
+    private int _deleteTombstonesLoaded;
     private string _accountScope = "ANONYMOUS-CACHE-SCOPE";
     private TimeSpan _cacheTtl = DefaultCacheTtl;
     private OfflineCacheService? _offlineCache;
@@ -109,13 +126,15 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
         }
 
         var normalizedRelativePath = NormalizeRelativePath(relativePath);
+        await EnsureDeleteTombstonesLoadedAsync(cancellationToken).ConfigureAwait(false);
         var accountScope = Volatile.Read(ref _accountScope);
         var cacheKey = $"{accountScope}:{route.Id:N}:{normalizedRelativePath}";
         if (_directoryCache.TryGetValue(cacheKey, out var cached) &&
             DateTimeOffset.UtcNow - cached.CreatedAt < _cacheTtl)
         {
-            QueueDirectoryObservation(accountScope, route, normalizedRelativePath, cached.Items);
-            return cached.Items;
+            var visible = FilterDeletedItems(route.Id, normalizedRelativePath, cached.Items);
+            QueueDirectoryObservation(accountScope, route, normalizedRelativePath, visible);
+            return visible;
         }
 
         var persisted = _database.TryGetDirectoryCache(
@@ -126,8 +145,9 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
         if (persisted is not null)
         {
             _directoryCache[cacheKey] = new CacheEntry(persisted.CachedAt, persisted.Items);
-            QueueDirectoryObservation(accountScope, route, normalizedRelativePath, persisted.Items);
-            return persisted.Items;
+            var visible = FilterDeletedItems(route.Id, normalizedRelativePath, persisted.Items);
+            QueueDirectoryObservation(accountScope, route, normalizedRelativePath, visible);
+            return visible;
         }
 
         if (route.HasGraphIdentity && _graphContent is not null)
@@ -145,8 +165,9 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
                 _directoryCache[cacheKey] = new CacheEntry(DateTimeOffset.UtcNow, items);
                 _database.SaveDirectoryCache(accountScope, route.Id, normalizedRelativePath, items);
                 var merged = MergeOfflineItems(route, normalizedRelativePath, items);
-                QueueDirectoryObservation(accountScope, route, normalizedRelativePath, items);
-                return merged;
+                var visible = FilterDeletedItems(route.Id, normalizedRelativePath, merged);
+                QueueDirectoryObservation(accountScope, route, normalizedRelativePath, visible);
+                return visible;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -154,7 +175,10 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
             }
             catch
             {
-                return MergeOfflineItems(route, normalizedRelativePath, cached?.Items ?? []);
+                return FilterDeletedItems(
+                    route.Id,
+                    normalizedRelativePath,
+                    MergeOfflineItems(route, normalizedRelativePath, cached?.Items ?? []));
             }
         }
 
@@ -163,7 +187,7 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
             !IsCurrentAccountScope(accountScope))
         {
             var merged = MergeOfflineItems(route, normalizedRelativePath, cached?.Items ?? []);
-            return merged;
+            return FilterDeletedItems(route.Id, normalizedRelativePath, merged);
         }
 
         try
@@ -200,8 +224,9 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
 
             _directoryCache[cacheKey] = new CacheEntry(DateTimeOffset.UtcNow, items);
             _database.SaveDirectoryCache(accountScope, route.Id, normalizedRelativePath, items);
-            QueueDirectoryObservation(accountScope, route, normalizedRelativePath, items);
-            return items;
+            var visible = FilterDeletedItems(route.Id, normalizedRelativePath, items);
+            QueueDirectoryObservation(accountScope, route, normalizedRelativePath, visible);
+            return visible;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -209,7 +234,10 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
         }
         catch
         {
-            return MergeOfflineItems(route, normalizedRelativePath, cached?.Items ?? []);
+            return FilterDeletedItems(
+                route.Id,
+                normalizedRelativePath,
+                MergeOfflineItems(route, normalizedRelativePath, cached?.Items ?? []));
         }
     }
 
@@ -230,6 +258,7 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
         }
 
         var normalizedRelativePath = NormalizeRelativePath(relativePath);
+        await EnsureDeleteTombstonesLoadedAsync(cancellationToken).ConfigureAwait(false);
         var operationScope = Volatile.Read(ref _accountScope);
         if (route.HasGraphIdentity && _graphContent is not null)
         {
@@ -244,13 +273,14 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
                 route.Id,
                 normalizedRelativePath,
                 graphItems);
+            var visible = FilterDeletedItems(route.Id, normalizedRelativePath, graphItems);
             if (queueObservation)
             {
                 QueueDirectoryObservation(
                     operationScope,
                     route,
                     normalizedRelativePath,
-                    graphItems);
+                    visible);
             }
 
             if (recordUserAccess)
@@ -258,7 +288,7 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
                 QueueFolderAccess(operationScope, route.Id, normalizedRelativePath);
             }
 
-            return graphItems;
+            return visible;
         }
 
         EnsureCurrentAccountScope(operationScope);
@@ -297,9 +327,10 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
         _directoryCache[$"{operationScope}:{route.Id:N}:{normalizedRelativePath}"] =
             new CacheEntry(DateTimeOffset.UtcNow, items);
         _database.SaveDirectoryCache(operationScope, route.Id, normalizedRelativePath, items);
+        var visibleItems = FilterDeletedItems(route.Id, normalizedRelativePath, items);
         if (queueObservation)
         {
-            QueueDirectoryObservation(operationScope, route, normalizedRelativePath, items);
+            QueueDirectoryObservation(operationScope, route, normalizedRelativePath, visibleItems);
         }
 
         if (recordUserAccess)
@@ -307,7 +338,7 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
             QueueFolderAccess(operationScope, route.Id, normalizedRelativePath);
         }
 
-        return items;
+        return visibleItems;
     }
 
     public SharePointDriveItem? GetItem(DriveRoute route, string relativePath) =>
@@ -329,6 +360,162 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
         var items = await ListDirectoryAsync(route, parentPath, cancellationToken).ConfigureAwait(false);
         return items
             .FirstOrDefault(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public async Task<RemoteUploadVerificationResult> VerifyRemoteUploadAsync(
+        DriveRoute route,
+        string relativePath,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(route);
+        cancellationToken.ThrowIfCancellationRequested();
+        var routeInfo = SharePointRouteInfo.FromRoute(route);
+        if (routeInfo is null || !IsHostAllowed(routeInfo.SiteUri))
+        {
+            return RemoteUploadVerificationResults.Unavailable(
+                "A pasta de destino não está disponível para verificação remota.",
+                SyncFailureKind.RouteUnavailable);
+        }
+
+        var normalized = NormalizeRelativePath(relativePath);
+        if (string.IsNullOrWhiteSpace(GetFileName(normalized)))
+        {
+            return RemoteUploadVerificationResults.Unavailable(
+                "Não foi possível identificar o arquivo para verificação remota.",
+                SyncFailureKind.RouteUnavailable);
+        }
+
+        var operationScope = Volatile.Read(ref _accountScope);
+        if (route.HasGraphIdentity && _graphContent is not null)
+        {
+            var graphResult = await _graphContent
+                .VerifyRemoteUploadAsync(route, normalized, cancellationToken)
+                .ConfigureAwait(false);
+            return IsCurrentAccountScope(operationScope)
+                ? graphResult
+                : RemoteUploadVerificationResults.Unavailable(
+                    "A conta conectada mudou durante a verificação. Tente novamente.",
+                    SyncFailureKind.Session,
+                    "The authenticated content identity changed during remote upload verification.");
+        }
+
+        if (!IsCurrentAccountScope(operationScope) ||
+            !TryGetVerifiedCookieHeader(routeInfo.SiteUri, out var cookieHeader) ||
+            !IsCurrentAccountScope(operationScope))
+        {
+            return RemoteUploadVerificationResults.Unavailable(
+                "Sua sessão do SharePoint expirou. Entre novamente para confirmar o arquivo.",
+                SyncFailureKind.Session);
+        }
+
+        try
+        {
+            var result = await _httpTransport.SendAsync(
+                BuildFileMetadataUrl(routeInfo, routeInfo.BuildServerRelativePath(normalized)),
+                requestUri =>
+                {
+                    var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+                    ApplyHeaders(request, cookieHeader);
+                    return request;
+                },
+                HttpCompletionOption.ResponseHeadersRead,
+                retryable: true,
+                async (response, operationToken) =>
+                {
+                    if (response.StatusCode == HttpStatusCode.NotFound)
+                    {
+                        return RemoteUploadVerificationResults.NotFound();
+                    }
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        return RemoteUploadVerificationResults.FromStatus(
+                            response.StatusCode,
+                            "SharePoint",
+                            "SharePoint REST remote verification");
+                    }
+
+                    await using var stream = await response.Content
+                        .ReadAsStreamAsync(operationToken)
+                        .ConfigureAwait(false);
+                    using var document = await JsonDocument
+                        .ParseAsync(stream, cancellationToken: operationToken)
+                        .ConfigureAwait(false);
+                    var receipt = RemoteUploadReceiptParser.ParseSharePoint(document.RootElement);
+                    return receipt is not null
+                        ? RemoteUploadVerificationResults.Confirmed(receipt)
+                        : RemoteUploadVerificationResults.Unavailable(
+                            "O SharePoint não retornou metadados suficientes para confirmar o arquivo.",
+                            SyncFailureKind.Integrity,
+                            "SharePoint REST remote verification omitted all supported receipt fields.");
+                },
+                cancellationToken).ConfigureAwait(false);
+
+            return IsCurrentAccountScope(operationScope)
+                ? result
+                : RemoteUploadVerificationResults.Unavailable(
+                    "A conta conectada mudou durante a verificação. Tente novamente.",
+                    SyncFailureKind.Session,
+                    "The authenticated content identity changed during remote upload verification.");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException exception)
+        {
+            return RemoteUploadVerificationResults.Unavailable(
+                "O SharePoint demorou demais para confirmar o arquivo. Aguarde e tente novamente.",
+                SyncFailureKind.Network,
+                UploadTechnicalDetails.FromException(
+                    "SharePoint REST remote verification timed out",
+                    exception));
+        }
+        catch (TimeoutException exception)
+        {
+            return RemoteUploadVerificationResults.Unavailable(
+                "O SharePoint demorou demais para confirmar o arquivo. Aguarde e tente novamente.",
+                SyncFailureKind.Network,
+                UploadTechnicalDetails.FromException(
+                    "SharePoint REST remote verification timed out",
+                    exception));
+        }
+        catch (HttpRequestException exception)
+        {
+            return RemoteUploadVerificationResults.Unavailable(
+                "Não foi possível consultar o SharePoint. Verifique a conexão e tente novamente.",
+                SyncFailureKind.Network,
+                UploadTechnicalDetails.FromException(
+                    "SharePoint REST remote verification request failed",
+                    exception));
+        }
+        catch (IOException exception)
+        {
+            return RemoteUploadVerificationResults.Unavailable(
+                "Não foi possível concluir a leitura da confirmação remota. Tente novamente.",
+                SyncFailureKind.Network,
+                UploadTechnicalDetails.FromException(
+                    "SharePoint REST remote verification response failed",
+                    exception));
+        }
+        catch (JsonException exception)
+        {
+            return RemoteUploadVerificationResults.Unavailable(
+                "O SharePoint retornou uma confirmação que não pôde ser validada.",
+                SyncFailureKind.Integrity,
+                UploadTechnicalDetails.FromException(
+                    "SharePoint REST remote verification response was invalid",
+                    exception));
+        }
+        catch (Exception exception)
+        {
+            return RemoteUploadVerificationResults.Unavailable(
+                "Não foi possível confirmar o arquivo no SharePoint agora.",
+                SyncFailureKind.Unknown,
+                UploadTechnicalDetails.FromException(
+                    "SharePoint REST remote verification failed",
+                    exception));
+        }
     }
 
     public byte[] ReadFile(DriveRoute route, string relativePath) =>
@@ -677,7 +864,8 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
         string relativePath,
         Stream content,
         DateTimeOffset? expectedModifiedAt,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IProgress<UploadTransferProgress>? progress = null)
     {
         ArgumentNullException.ThrowIfNull(content);
         if (!content.CanRead)
@@ -689,7 +877,9 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
         var routeInfo = SharePointRouteInfo.FromRoute(route);
         if (routeInfo is null || !IsHostAllowed(routeInfo.SiteUri))
         {
-            return new UploadAttemptResult(UploadAttemptState.RetryableFailure, "Sessão do SharePoint indisponível.");
+            return RetryableUploadFailure(
+                "Esta pasta do SharePoint não está disponível. Revise a conexão e tente novamente.",
+                SyncFailureKind.RouteUnavailable);
         }
 
         var normalized = NormalizeRelativePath(relativePath);
@@ -697,13 +887,15 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
         var fileName = GetFileName(normalized);
         if (string.IsNullOrWhiteSpace(fileName))
         {
-            return new UploadAttemptResult(UploadAttemptState.RetryableFailure, "Caminho de arquivo inválido.");
+            return RetryableUploadFailure(
+                "Não foi possível identificar o arquivo que deve ser enviado.",
+                SyncFailureKind.RouteUnavailable);
         }
 
         if (route.HasGraphIdentity && _graphContent is not null)
         {
             var graphResult = await _graphContent
-                .TryUploadFileAsync(route, normalized, content, expectedModifiedAt, cancellationToken)
+                .TryUploadFileAsync(route, normalized, content, expectedModifiedAt, cancellationToken, progress)
                 .ConfigureAwait(false);
             if (graphResult.State == UploadAttemptState.Succeeded)
             {
@@ -715,9 +907,12 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
 
         if (!TryGetVerifiedCookieHeader(routeInfo.SiteUri, out var cookieHeader))
         {
-            return new UploadAttemptResult(UploadAttemptState.RetryableFailure, "Sessão do SharePoint indisponível.");
+            return RetryableUploadFailure(
+                "Sua sessão do SharePoint expirou. Entre novamente e tente de novo.",
+                SyncFailureKind.Session);
         }
 
+        UploadProgressReporter? progressReporter = null;
         try
         {
             if (expectedModifiedAt is not null)
@@ -728,7 +923,8 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
                 {
                     return new UploadAttemptResult(
                         UploadAttemptState.Conflict,
-                        "O arquivo remoto mudou enquanto o arquivo local estava sendo editado.");
+                        "O arquivo remoto mudou enquanto o arquivo local estava sendo editado.",
+                        FailureKind: SyncFailureKind.Conflict);
                 }
             }
 
@@ -736,6 +932,12 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
             var folderPath = routeInfo.BuildServerRelativePath(parentPath);
             var contentLength = content.CanSeek ? content.Length - content.Position : (long?)null;
             var contentStart = content.CanSeek ? content.Position : 0;
+            progressReporter = new UploadProgressReporter(progress, contentLength);
+            if (contentLength == 0)
+            {
+                progressReporter.ReportCommitRisk();
+            }
+
             var result = await UploadToEndpointAsync(
                 BuildUploadFileUrl(routeInfo, folderPath, fileName),
                 cookieHeader,
@@ -743,6 +945,7 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
                 content,
                 contentStart,
                 contentLength,
+                progressReporter,
                 cancellationToken).ConfigureAwait(false);
 
             if (!result.IsSuccess && content.CanSeek && ShouldTryLegacyFallback(result.StatusCode))
@@ -754,26 +957,82 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
                     content,
                     contentStart,
                     contentLength,
+                    progressReporter,
                     cancellationToken).ConfigureAwait(false);
             }
 
             if (!result.IsSuccess)
             {
-                return new UploadAttemptResult(
-                    UploadAttemptState.RetryableFailure,
-                    $"SharePoint retornou {(int)result.StatusCode}.");
+                return UploadFailureClassifier.FromStatus(
+                    result.StatusCode,
+                    "SharePoint",
+                    "SharePoint REST upload");
             }
 
+            progressReporter.ReportAcknowledged(contentLength ?? progressReporter.ObservedBytes);
+            var receiptRead = await GetUploadReceiptSafelyAsync(
+                    routeInfo,
+                    cookieHeader,
+                    routeInfo.BuildServerRelativePath(normalized),
+                    cancellationToken)
+                .ConfigureAwait(false);
             InvalidateDirectory(route, parentPath);
-            return new UploadAttemptResult(UploadAttemptState.Succeeded);
+            return new UploadAttemptResult(
+                UploadAttemptState.Succeeded,
+                Receipt: receiptRead.Receipt,
+                FailureKind: SyncFailureKind.None,
+                TechnicalDetails: receiptRead.TechnicalDetails);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
-        catch
+        catch (OperationCanceledException exception)
         {
-            return new UploadAttemptResult(UploadAttemptState.RetryableFailure, "Não foi possível enviar o arquivo agora.");
+            return RetryableUploadFailure(
+                "O SharePoint demorou demais para responder. Aguarde um pouco e tente novamente.",
+                SyncFailureKind.Network,
+                UploadTechnicalDetails.FromException("SharePoint REST upload timed out", exception),
+                isCommitAmbiguous: progressReporter?.CommitRiskReported == true);
+        }
+        catch (TimeoutException exception)
+        {
+            return RetryableUploadFailure(
+                "O SharePoint demorou demais para responder. Verifique a conexão e tente novamente.",
+                SyncFailureKind.Network,
+                UploadTechnicalDetails.FromException("SharePoint REST upload timed out", exception),
+                isCommitAmbiguous: progressReporter?.CommitRiskReported == true);
+        }
+        catch (HttpRequestException exception)
+        {
+            return RetryableUploadFailure(
+                "Não foi possível alcançar o SharePoint. Verifique a conexão e tente novamente.",
+                SyncFailureKind.Network,
+                UploadTechnicalDetails.FromException("SharePoint REST upload request failed", exception),
+                isCommitAmbiguous: progressReporter?.CommitRiskReported == true);
+        }
+        catch (IOException exception)
+        {
+            return RetryableUploadFailure(
+                "Não foi possível ler o arquivo local para concluir o envio.",
+                SyncFailureKind.PayloadUnavailable,
+                UploadTechnicalDetails.FromException("Local upload stream failed", exception));
+        }
+        catch (JsonException exception)
+        {
+            return RetryableUploadFailure(
+                "O SharePoint retornou uma confirmação que não pôde ser validada.",
+                SyncFailureKind.Integrity,
+                UploadTechnicalDetails.FromException(
+                    "SharePoint REST upload response was invalid",
+                    exception));
+        }
+        catch (Exception exception)
+        {
+            return RetryableUploadFailure(
+                "Não foi possível enviar o arquivo agora. Tente novamente.",
+                SyncFailureKind.Unknown,
+                UploadTechnicalDetails.FromException("SharePoint REST upload failed", exception));
         }
     }
 
@@ -784,6 +1043,7 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
         Stream content,
         long contentStart,
         long? contentLength,
+        UploadProgressReporter progress,
         CancellationToken cancellationToken)
     {
         var usedNonSeekableStream = 0;
@@ -802,19 +1062,124 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
 
                 var request = new HttpRequestMessage(HttpMethod.Post, requestUri);
                 ApplyWriteHeaders(request, cookieHeader, digest);
-                request.Content = new StreamContent(new NonDisposingReadStream(content), 81_920);
+                request.Content = new StreamContent(
+                    new ProgressReadStream(content, contentStart, progress),
+                    81_920);
                 request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
                 request.Content.Headers.ContentLength = contentLength;
                 return request;
             },
             HttpCompletionOption.ResponseHeadersRead,
-            retryable: content.CanSeek,
+            // A timeout after the request body was consumed is an ambiguous
+            // commit. The durable queue verifies remotely before any replay.
+            retryable: false,
             (response, _) => Task.FromResult(new HttpOperationResult(response.IsSuccessStatusCode, response.StatusCode)),
             cancellationToken);
     }
 
+    private async Task<UploadReceiptReadResult> GetUploadReceiptSafelyAsync(
+        SharePointRouteInfo routeInfo,
+        string cookieHeader,
+        string serverRelativePath,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _httpTransport.SendAsync(
+                BuildFileMetadataUrl(routeInfo, serverRelativePath),
+                requestUri =>
+                {
+                    var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+                    ApplyHeaders(request, cookieHeader);
+                    return request;
+                },
+                HttpCompletionOption.ResponseHeadersRead,
+                retryable: true,
+                async (response, operationToken) =>
+                {
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        return new UploadReceiptReadResult(
+                            null,
+                            UploadTechnicalDetails.Sanitize(
+                                "SharePoint receipt metadata returned " +
+                                $"HTTP {(int)response.StatusCode} ({response.StatusCode}) after upload commit."));
+                    }
+
+                    await using var stream = await response.Content
+                        .ReadAsStreamAsync(operationToken)
+                        .ConfigureAwait(false);
+                    using var document = await JsonDocument
+                        .ParseAsync(stream, cancellationToken: operationToken)
+                        .ConfigureAwait(false);
+                    var receipt = RemoteUploadReceiptParser.ParseSharePoint(document.RootElement);
+                    return receipt is not null
+                        ? new UploadReceiptReadResult(receipt, null)
+                        : new UploadReceiptReadResult(
+                            null,
+                            UploadTechnicalDetails.Sanitize(
+                                "SharePoint receipt metadata omitted all supported confirmation fields."));
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            return new UploadReceiptReadResult(
+                null,
+                UploadTechnicalDetails.FromException(
+                    "SharePoint receipt metadata could not be read after upload commit",
+                    exception));
+        }
+    }
+
+    private readonly record struct UploadReceiptReadResult(
+        RemoteUploadReceipt? Receipt,
+        string? TechnicalDetails);
+
+    private static UploadAttemptResult RetryableUploadFailure(
+        string message,
+        SyncFailureKind failureKind,
+        string? technicalDetails = null,
+        bool isCommitAmbiguous = false) =>
+        new(
+            UploadAttemptState.RetryableFailure,
+            message,
+            FailureKind: failureKind,
+            TechnicalDetails: UploadTechnicalDetails.Sanitize(technicalDetails),
+            IsCommitAmbiguous: isCommitAmbiguous);
+
     public void CacheLocalFile(DriveRoute route, string relativePath, byte[] bytes) =>
         _fileCache[BuildCacheKey(route.Id, NormalizeRelativePath(relativePath))] = bytes.ToArray();
+
+    public void RegisterDeleteTombstone(Guid routeId, string relativePath, bool isDirectory)
+    {
+        var normalized = NormalizeRelativePath(relativePath);
+        if (routeId == Guid.Empty || string.IsNullOrWhiteSpace(normalized))
+        {
+            return;
+        }
+
+        _deleteTombstones[BuildDeleteTombstoneKey(routeId, normalized)] =
+            new DeleteTombstone(routeId, normalized, isDirectory);
+        InvalidateDeletePathCaches(routeId, normalized, isDirectory);
+    }
+
+    public void ClearDeleteTombstone(Guid routeId, string relativePath)
+    {
+        var normalized = NormalizeRelativePath(relativePath);
+        if (routeId == Guid.Empty || string.IsNullOrWhiteSpace(normalized))
+        {
+            return;
+        }
+
+        var key = BuildDeleteTombstoneKey(routeId, normalized);
+        var isDirectory = _deleteTombstones.TryRemove(key, out var removed) && removed.IsDirectory;
+        InvalidateDeletePathCaches(routeId, normalized, isDirectory);
+    }
 
     public bool DeleteItem(DriveRoute route, string relativePath, bool isDirectory) =>
         DeleteItemAsync(route, relativePath, isDirectory).GetAwaiter().GetResult();
@@ -825,35 +1190,61 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
         bool isDirectory,
         CancellationToken cancellationToken = default)
     {
+        var result = await TryDeleteItemAsync(route, relativePath, isDirectory, cancellationToken)
+            .ConfigureAwait(false);
+        if (result.State == RemoteDeleteAttemptState.Succeeded)
+        {
+            ClearDeleteTombstone(route.Id, relativePath);
+            return true;
+        }
+
+        return false;
+    }
+
+    public async Task<RemoteDeleteAttemptResult> TryDeleteItemAsync(
+        DriveRoute route,
+        string relativePath,
+        bool isDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(route);
+        cancellationToken.ThrowIfCancellationRequested();
         var routeInfo = SharePointRouteInfo.FromRoute(route);
         if (routeInfo is null || !IsHostAllowed(routeInfo.SiteUri))
         {
-            return false;
+            return RemoteDeleteResults.Terminal(
+                SyncFailureKind.RouteUnavailable,
+                "A pasta de destino não está disponível para exclusão.");
         }
 
         var normalized = NormalizeRelativePath(relativePath);
         if (string.IsNullOrWhiteSpace(normalized))
         {
-            return false;
+            return RemoteDeleteResults.Terminal(
+                SyncFailureKind.RouteUnavailable,
+                "Não foi possível identificar o item que deve ser excluído.");
         }
 
         if (route.HasGraphIdentity && _graphContent is not null)
         {
-            var deleted = await _graphContent
-                .DeleteItemAsync(route, normalized, isDirectory, cancellationToken)
+            var graphResult = await _graphContent
+                .TryDeleteItemAsync(route, normalized, isDirectory, cancellationToken)
                 .ConfigureAwait(false);
-            if (deleted)
+            if (graphResult.State == RemoteDeleteAttemptState.Succeeded)
             {
-                _fileCache.TryRemove(BuildCacheKey(route.Id, normalized), out _);
-                InvalidateDirectory(route, GetParentPath(normalized));
+                await CompleteSuccessfulDeleteAsync(route, normalized, isDirectory, cancellationToken)
+                    .ConfigureAwait(false);
             }
 
-            return deleted;
+            return graphResult;
         }
 
         if (!TryGetVerifiedCookieHeader(routeInfo.SiteUri, out var cookieHeader))
         {
-            return false;
+            return RemoteDeleteResults.Retryable(
+                SyncFailureKind.Session,
+                "Sua sessão do SharePoint expirou. Entre novamente para concluir a exclusão.",
+                "SharePoint REST delete did not start because no verified cookie session was available.");
         }
 
         try
@@ -872,22 +1263,50 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
                 },
                 retryable: false,
                 cancellationToken).ConfigureAwait(false);
-            if (!result.IsSuccess)
+            var deleteResult = RemoteDeleteResults.FromStatus(
+                result.StatusCode,
+                "SharePoint",
+                "SharePoint REST delete");
+            if (deleteResult.State != RemoteDeleteAttemptState.Succeeded)
             {
-                return false;
+                return deleteResult;
             }
 
-            _fileCache.TryRemove(BuildCacheKey(route.Id, normalized), out _);
-            InvalidateDirectory(route, GetParentPath(normalized));
-            return true;
+            await CompleteSuccessfulDeleteAsync(route, normalized, isDirectory, cancellationToken)
+                .ConfigureAwait(false);
+            return deleteResult;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
-        catch
+        catch (OperationCanceledException exception)
         {
-            return false;
+            return RemoteDeleteResults.Retryable(
+                SyncFailureKind.Network,
+                "O SharePoint demorou demais para responder. A exclusão será tentada novamente.",
+                UploadTechnicalDetails.FromException("SharePoint REST delete timed out", exception));
+        }
+        catch (TimeoutException exception)
+        {
+            return RemoteDeleteResults.Retryable(
+                SyncFailureKind.Network,
+                "O SharePoint demorou demais para responder. A exclusão será tentada novamente.",
+                UploadTechnicalDetails.FromException("SharePoint REST delete timed out", exception));
+        }
+        catch (HttpRequestException exception)
+        {
+            return RemoteDeleteResults.Retryable(
+                SyncFailureKind.Network,
+                "Não foi possível alcançar o SharePoint. A exclusão será tentada novamente.",
+                UploadTechnicalDetails.FromException("SharePoint REST delete request failed", exception));
+        }
+        catch (Exception exception)
+        {
+            return RemoteDeleteResults.Retryable(
+                SyncFailureKind.Unknown,
+                "Não foi possível concluir a exclusão no SharePoint agora.",
+                UploadTechnicalDetails.FromException("SharePoint REST delete failed", exception));
         }
     }
 
@@ -1347,6 +1766,14 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
         return new Uri($"{routeInfo.SiteRoot}/_api/web/GetFileByServerRelativePath(decodedurl=@p)/$value?@p={alias}");
     }
 
+    private static Uri BuildFileMetadataUrl(SharePointRouteInfo routeInfo, string serverRelativePath)
+    {
+        var alias = Uri.EscapeDataString(ToODataStringLiteral(serverRelativePath));
+        return new Uri(
+            $"{routeInfo.SiteRoot}/_api/web/GetFileByServerRelativePath(decodedurl=@p)" +
+            $"?$select=UniqueId,ETag,Length,TimeLastModified&@p={alias}");
+    }
+
     private static Uri BuildLegacyFileValueUrl(SharePointRouteInfo routeInfo, string serverRelativePath) =>
         new($"{routeInfo.SiteRoot}/_api/web/GetFileByServerRelativeUrl({ToODataStringLiteral(serverRelativePath)})/$value");
 
@@ -1407,6 +1834,200 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
             ? $"MoveTo(newurl={ToODataStringLiteral(newServerRelativePath)})"
             : $"MoveTo(newurl={ToODataStringLiteral(newServerRelativePath)},flags={flags})";
         return new Uri($"{routeInfo.SiteRoot}/_api/web/{target}({ToODataStringLiteral(oldServerRelativePath)})/{moveCall}");
+    }
+
+    private async Task EnsureDeleteTombstonesLoadedAsync(CancellationToken cancellationToken)
+    {
+        if (Volatile.Read(ref _deleteTombstonesLoaded) != 0)
+        {
+            return;
+        }
+
+        await _deleteTombstoneLoadGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (Volatile.Read(ref _deleteTombstonesLoaded) != 0)
+            {
+                return;
+            }
+
+            var active = await _database.GetActiveSyncJobsAsync().ConfigureAwait(false);
+            foreach (var job in active.Where(job =>
+                         job.OperationKind == SyncOperationKind.Delete &&
+                         job.RouteId is not null &&
+                         job.State is (SyncJobState.Waiting or SyncJobState.Uploading)))
+            {
+                RegisterDeleteTombstone(
+                    job.RouteId!.Value,
+                    job.RelativePath,
+                    job.IsDirectory);
+                var current = await _database.GetSyncJobAsync(job.Id).ConfigureAwait(false);
+                if (current is null ||
+                    current.OperationKind != SyncOperationKind.Delete ||
+                    current.State is not (SyncJobState.Waiting or SyncJobState.Uploading))
+                {
+                    ClearDeleteTombstone(job.RouteId.Value, job.RelativePath);
+                }
+            }
+
+            Volatile.Write(ref _deleteTombstonesLoaded, 1);
+        }
+        finally
+        {
+            _deleteTombstoneLoadGate.Release();
+        }
+    }
+
+    private IReadOnlyList<SharePointDriveItem> FilterDeletedItems(
+        Guid routeId,
+        string parentPath,
+        IReadOnlyList<SharePointDriveItem> items)
+    {
+        if (items.Count == 0 || _deleteTombstones.IsEmpty)
+        {
+            return items;
+        }
+
+        return items
+            .Where(item => !IsCoveredByDeleteTombstone(
+                routeId,
+                CombineRelativePath(parentPath, item.Name)))
+            .ToArray();
+    }
+
+    private bool IsCoveredByDeleteTombstone(Guid routeId, string relativePath)
+    {
+        var normalized = NormalizeRelativePath(relativePath);
+        foreach (var tombstone in _deleteTombstones.Values)
+        {
+            if (tombstone.RouteId != routeId)
+            {
+                continue;
+            }
+
+            if (string.Equals(tombstone.RelativePath, normalized, StringComparison.OrdinalIgnoreCase) ||
+                tombstone.IsDirectory &&
+                normalized.StartsWith(tombstone.RelativePath + "/", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private async Task CompleteSuccessfulDeleteAsync(
+        DriveRoute route,
+        string relativePath,
+        bool isDirectory,
+        CancellationToken cancellationToken)
+    {
+        InvalidateDeletePathCaches(route.Id, relativePath, isDirectory);
+        if (_offlineCache is not null)
+        {
+            await _offlineCache
+                .RemovePathAsync(route.Id, relativePath, isDirectory, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        if (_contentIndex is not null)
+        {
+            await _contentIndex
+                .RemoveItemFromAllScopesAsync(route.Id, relativePath, isDirectory, cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private void InvalidateDeletePathCaches(Guid routeId, string relativePath, bool isDirectory)
+    {
+        var normalized = NormalizeRelativePath(relativePath);
+        var parent = GetParentPath(normalized);
+        _database.InvalidateDeletePathDirectoryCache(routeId, normalized, isDirectory);
+
+        foreach (var key in _directoryCache.Keys.Where(key =>
+                     IsDeleteDirectoryCacheKey(key, routeId, normalized, parent, isDirectory)))
+        {
+            _directoryCache.TryRemove(key, out _);
+        }
+
+        foreach (var key in _pendingDirectoryObservations.Keys.Where(key =>
+                     IsDeleteDirectoryCacheKey(key, routeId, normalized, parent, isDirectory)))
+        {
+            _pendingDirectoryObservations.TryRemove(key, out _);
+        }
+
+        foreach (var key in _directoryAccessDebounce.Keys.Where(key =>
+                     IsDeleteDirectoryCacheKey(key, routeId, normalized, parent, isDirectory)))
+        {
+            _directoryAccessDebounce.TryRemove(key, out _);
+        }
+
+        foreach (var key in _fileCache.Keys.Where(key =>
+                     IsDeleteFileCacheKey(key, routeId, normalized, isDirectory)))
+        {
+            _fileCache.TryRemove(key, out _);
+        }
+    }
+
+    private static bool IsDeleteDirectoryCacheKey(
+        string cacheKey,
+        Guid routeId,
+        string normalizedPath,
+        string parentPath,
+        bool isDirectory)
+    {
+        if (!TryGetRouteRelativePath(cacheKey, routeId, out var cachedPath))
+        {
+            return false;
+        }
+
+        return string.Equals(cachedPath, normalizedPath, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(cachedPath, parentPath, StringComparison.OrdinalIgnoreCase) ||
+               isDirectory &&
+               cachedPath.StartsWith(normalizedPath + "/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsDeleteFileCacheKey(
+        string cacheKey,
+        Guid routeId,
+        string normalizedPath,
+        bool isDirectory)
+    {
+        if (!TryGetRouteRelativePath(cacheKey, routeId, out var cachedPath))
+        {
+            return false;
+        }
+
+        return string.Equals(cachedPath, normalizedPath, StringComparison.OrdinalIgnoreCase) ||
+               isDirectory &&
+               cachedPath.StartsWith(normalizedPath + "/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryGetRouteRelativePath(
+        string cacheKey,
+        Guid routeId,
+        out string relativePath)
+    {
+        var marker = $":{routeId:N}:";
+        var markerIndex = cacheKey.LastIndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (markerIndex < 0)
+        {
+            relativePath = string.Empty;
+            return false;
+        }
+
+        relativePath = cacheKey[(markerIndex + marker.Length)..];
+        return true;
+    }
+
+    private static string BuildDeleteTombstoneKey(Guid routeId, string relativePath) =>
+        $"{routeId:N}:{NormalizeRelativePath(relativePath).ToUpperInvariant()}";
+
+    private static string CombineRelativePath(string parentPath, string childName)
+    {
+        var parent = NormalizeRelativePath(parentPath);
+        var child = NormalizeRelativePath(childName);
+        return string.IsNullOrWhiteSpace(parent) ? child : $"{parent}/{child}";
     }
 
     private void InvalidateDirectory(DriveRoute route, string relativePath)
@@ -1746,6 +2367,8 @@ public sealed class SharePointBrowserContentService : ISharePointContentTransfer
     }
 
     private sealed record CacheEntry(DateTimeOffset CreatedAt, IReadOnlyList<SharePointDriveItem> Items);
+
+    private sealed record DeleteTombstone(Guid RouteId, string RelativePath, bool IsDirectory);
 
     private sealed record HttpOperationResult(bool IsSuccess, HttpStatusCode StatusCode);
 

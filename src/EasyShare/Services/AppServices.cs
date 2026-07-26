@@ -8,7 +8,7 @@ namespace EasyShare.Services;
 /// </summary>
 public sealed class AppServices : IDisposable
 {
-    private bool _disposed;
+    private int _disposed;
 
     private AppServices(
         AppDataPaths paths,
@@ -104,7 +104,17 @@ public sealed class AppServices : IDisposable
 
     public static AppServices Create()
     {
+#if DEBUG
+        var testDataDirectory = DebugVisualTestIsolation.DataDirectory;
+        var paths = testDataDirectory is null
+            ? new AppDataPaths()
+            : new AppDataPaths(
+                testDataDirectory,
+                packageWebViewProfilePath:
+                    DebugVisualTestIsolation.PackageWebViewProfileDirectory);
+#else
         var paths = new AppDataPaths();
+#endif
         new LocalDataResetService(paths).CompletePendingResetOrThrow();
         paths.EnsureCreated();
         var policy = new EnterprisePolicyLoader(paths).Load();
@@ -164,19 +174,32 @@ public sealed class AppServices : IDisposable
 
     public void Dispose()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
         {
             return;
         }
 
-        _disposed = true;
-        UploadQueue.Dispose();
-        VirtualDrive.Dispose();
+        DisposeBestEffort(nameof(VirtualDrive), VirtualDrive.Dispose);
+        DisposeBestEffort(nameof(UploadQueue), UploadQueue.Dispose);
         if (AppUpdate is IDisposable disposableUpdateService)
         {
-            disposableUpdateService.Dispose();
+            DisposeBestEffort(nameof(AppUpdate), disposableUpdateService.Dispose);
         }
 
-        Notifications.Dispose();
+        DisposeBestEffort(nameof(Notifications), Notifications.Dispose);
+    }
+
+    private static void DisposeBestEffort(string serviceName, Action dispose)
+    {
+        try
+        {
+            dispose();
+        }
+        catch (Exception ex)
+        {
+            StartupDiagnostics.Write(
+                $"Could not dispose {serviceName} during application shutdown.",
+                ex);
+        }
     }
 }

@@ -355,6 +355,90 @@ public sealed class OfflineCacheService
         }
     }
 
+    public async Task<int> RemovePathAsync(
+        Guid routeId,
+        string relativePath,
+        bool isDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        var normalized = NormalizeRelative(relativePath);
+        if (routeId == Guid.Empty || string.IsNullOrWhiteSpace(normalized))
+        {
+            return 0;
+        }
+
+        await _pinOperationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (Volatile.Read(ref _resetSuspended) != 0)
+            {
+                throw new InvalidOperationException(
+                    "Local data is being deleted. Offline cache changes are temporarily blocked.");
+            }
+
+            await InitializeAsync(cancellationToken).ConfigureAwait(false);
+            await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var removedKeys = _records
+                    .Where(pair =>
+                        pair.Value.RouteId == routeId &&
+                        (string.Equals(
+                             pair.Value.RelativePath,
+                             normalized,
+                             StringComparison.OrdinalIgnoreCase) ||
+                         isDirectory &&
+                         pair.Value.RelativePath.StartsWith(
+                             normalized + "/",
+                             StringComparison.OrdinalIgnoreCase)))
+                    .Select(pair => pair.Key)
+                    .ToArray();
+                if (removedKeys.Length == 0)
+                {
+                    // A prior canceled attempt may already have removed the
+                    // in-memory entry but not committed the index replacement.
+                    await SaveIndexAsync(cancellationToken).ConfigureAwait(false);
+                    return 0;
+                }
+
+                foreach (var key in removedKeys)
+                {
+                    _records.TryRemove(key, out _);
+                }
+
+                // Persist absence before best-effort payload cleanup. A locked
+                // ciphertext may become an orphan, but it cannot repopulate the
+                // Explorer after the remote item has been deleted.
+                await SaveIndexAsync(cancellationToken).ConfigureAwait(false);
+                foreach (var key in removedKeys)
+                {
+                    try
+                    {
+                        var payloadPath = GetPayloadPath(key);
+                        if (File.Exists(payloadPath))
+                        {
+                            File.Delete(payloadPath);
+                        }
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        StartupDiagnostics.Write("Offline delete payload cleanup failed.", ex);
+                    }
+                }
+
+                return removedKeys.Length;
+            }
+            finally
+            {
+                _gate.Release();
+            }
+        }
+        finally
+        {
+            _pinOperationGate.Release();
+        }
+    }
+
     public IReadOnlyList<SharePointDriveItem> GetDirectoryItems(DriveRoute route, string relativePath)
     {
         if (!_initialized)

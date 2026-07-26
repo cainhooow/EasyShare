@@ -32,6 +32,7 @@ public sealed class TextProvider : System.ComponentModel.INotifyPropertyChanged
     public string ActionAddRoute => AppText.Get("ActionAddRoute");
     public string ActionBack => AppText.Get("ActionBack");
     public string ActionCheckUpdates => AppText.Get("ActionCheckUpdates");
+    public string ActionClearCompleted => AppText.Get("ActionClearCompleted");
     public string ActionClearLogin => AppText.Get("ActionClearLogin");
     public string ActionDownloadUpdate => AppText.Get("ActionDownloadUpdate");
     public string ActionEdit => AppText.Get("ActionEdit");
@@ -50,12 +51,16 @@ public sealed class TextProvider : System.ComponentModel.INotifyPropertyChanged
     public string ActionPinCurrent => AppText.Get("ActionPinCurrent");
     public string ActionRefresh => AppText.Get("ActionRefresh");
     public string ActionRemove => AppText.Get("ActionRemove");
+    public string ActionReviewUploads => AppText.Get("ActionReviewUploads");
     public string ActionResetApp => AppText.Get("ActionResetApp");
+    public string ActionRetryUpload => AppText.Get("ActionRetryUpload");
     public string ActionSaveSettings => AppText.Get("ActionSaveSettings");
     public string ActionSignIn => AppText.Get("ActionSignIn");
     public string ActionSignOut => AppText.Get("ActionSignOut");
     public string ActionTest => AppText.Get("ActionTest");
+    public string ActionTryNow => AppText.Get("ActionTryNow");
     public string ActionVerifyLogin => AppText.Get("ActionVerifyLogin");
+    public string ActionViewDetails => AppText.Get("ActionViewDetails");
     public string AppName => AppText.Get("AppName");
     public string AuthAdminConsentRequired => AppText.Get("AuthAdminConsentRequired");
     public string AuthBrowserAccount => AppText.Get("AuthBrowserAccount");
@@ -176,6 +181,8 @@ public sealed class TextProvider : System.ComponentModel.INotifyPropertyChanged
     public string OperationsHealthTab => AppText.Get("OperationsHealthTab");
     public string OperationsOfflineTab => AppText.Get("OperationsOfflineTab");
     public string OperationsTransfersTab => AppText.Get("OperationsTransfersTab");
+    public string OperationsEmptyMessage => AppText.Get("OperationsEmptyMessage");
+    public string OperationsEmptyTitle => AppText.Get("OperationsEmptyTitle");
     public string NavSync => AppText.Get("NavSync");
     public string PinNoFolderMessage => AppText.Get("PinNoFolderMessage");
     public string PinNoFolderTitle => AppText.Get("PinNoFolderTitle");

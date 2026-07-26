@@ -60,10 +60,18 @@
                     <SymbolIcon Symbol="Folder" />
                 </NavigationViewItem.Icon>
             </NavigationViewItem>
-            <NavigationViewItem Content="{Binding Source={StaticResource Text}, Path=NavSync}" Tag="Sync">
+            <NavigationViewItem
+                AutomationProperties.Name="{Binding SyncNavigationAutomationName}"
+                Content="{Binding Source={StaticResource Text}, Path=NavSync}"
+                Tag="Sync">
                 <NavigationViewItem.Icon>
                     <SymbolIcon Symbol="Sync" />
                 </NavigationViewItem.Icon>
+                <NavigationViewItem.InfoBadge>
+                    <InfoBadge
+                        Value="{Binding QueueBadgeValue}"
+                        Visibility="{Binding QueueBadgeVisibility}" />
+                </NavigationViewItem.InfoBadge>
             </NavigationViewItem>
             <NavigationViewItem Content="{Binding Source={StaticResource Text}, Path=NavBrowser}" Tag="Browser">
                 <NavigationViewItem.Icon>
@@ -171,6 +179,7 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
@@ -226,6 +235,75 @@
                                 <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{Binding Source={StaticResource Text}, Path=RoutesConnected}" />
                             </StackPanel>
                         </Border>
+
+                        <Border
+                            x:Name="UploadsStatusCard"
+                            Grid.Row="1"
+                            Grid.ColumnSpan="3"
+                            Padding="18"
+                            AutomationProperties.Name="{Binding QueueSummaryAutomationName}"
+                            Background="{ThemeResource EasyShareSurfaceBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="{StaticResource EasyShareCardCornerRadius}">
+                            <Grid
+                                x:Name="UploadsStatusLayout"
+                                ColumnSpacing="16"
+                                RowSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <VisualStateManager.VisualStateGroups>
+                                    <VisualStateGroup>
+                                        <VisualState x:Name="NarrowUploadSummary">
+                                            <VisualState.StateTriggers>
+                                                <AdaptiveTrigger MinWindowWidth="0" />
+                                            </VisualState.StateTriggers>
+                                        </VisualState>
+                                        <VisualState x:Name="WideUploadSummary">
+                                            <VisualState.StateTriggers>
+                                                <AdaptiveTrigger MinWindowWidth="720" />
+                                            </VisualState.StateTriggers>
+                                            <VisualState.Setters>
+                                                <Setter Target="UploadsSummaryText.(Grid.ColumnSpan)" Value="1" />
+                                                <Setter Target="ReviewUploadsButton.(Grid.Row)" Value="0" />
+                                                <Setter Target="ReviewUploadsButton.(Grid.Column)" Value="1" />
+                                                <Setter Target="ReviewUploadsButton.(Grid.ColumnSpan)" Value="1" />
+                                                <Setter Target="ReviewUploadsButton.HorizontalAlignment" Value="Right" />
+                                                <Setter Target="ReviewUploadsButton.VerticalAlignment" Value="Center" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                    </VisualStateGroup>
+                                </VisualStateManager.VisualStateGroups>
+                                <StackPanel
+                                    x:Name="UploadsSummaryText"
+                                    Grid.ColumnSpan="2"
+                                    Spacing="4">
+                                    <TextBlock
+                                        AutomationProperties.LiveSetting="Polite"
+                                        Style="{ThemeResource SubtitleTextBlockStyle}"
+                                        Text="{Binding QueueSummaryTitle}"
+                                        TextWrapping="Wrap" />
+                                    <TextBlock
+                                        Style="{ThemeResource CaptionTextBlockStyle}"
+                                        Text="{Binding QueueSummaryText}"
+                                        TextWrapping="Wrap" />
+                                </StackPanel>
+                                <Button
+                                    x:Name="ReviewUploadsButton"
+                                    Grid.Row="1"
+                                    Grid.ColumnSpan="2"
+                                    HorizontalAlignment="Left"
+                                    AutomationProperties.Name="{Binding QueueSummaryAutomationName}"
+                                    Click="OpenUploadsButton_Click"
+                                    Content="{Binding Source={StaticResource Text}, Path=ActionReviewUploads}" />
+                            </Grid>
+                        </Border>
                     </Grid>
 
                     <StackPanel Spacing="8">
@@ -275,7 +353,32 @@
                 </StackPanel>
             </ScrollViewer>
 
-            <controls:SharePointExplorerControl x:Name="SharePointExplorer" Visibility="Collapsed" />
+            <Grid
+                x:Name="ExplorerView"
+                RowSpacing="8"
+                Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <InfoBar
+                    AutomationProperties.LiveSetting="Polite"
+                    IsClosable="False"
+                    IsOpen="{Binding QueueStripIsOpen}"
+                    Message="{Binding QueueSummaryText}"
+                    Severity="{Binding QueueInfoSeverity}"
+                    Title="{Binding QueueSummaryTitle}">
+                    <InfoBar.ActionButton>
+                        <Button
+                            AutomationProperties.Name="{Binding QueueSummaryAutomationName}"
+                            Click="OpenUploadsButton_Click"
+                            Content="{Binding Source={StaticResource Text}, Path=ActionReviewUploads}" />
+                    </InfoBar.ActionButton>
+                </InfoBar>
+                <controls:SharePointExplorerControl
+                    x:Name="SharePointExplorer"
+                    Grid.Row="1" />
+            </Grid>
 
             <controls:ContentAssistantControl x:Name="ContentAssistant" Visibility="Collapsed" />
 
@@ -313,43 +416,51 @@
                                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                 BorderThickness="1"
                                 CornerRadius="{StaticResource EasyShareInnerCornerRadius}">
-                            <Grid ColumnSpacing="16">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="2*" />
-                                    <ColumnDefinition Width="3*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
+                            <StackPanel Spacing="12">
                                 <StackPanel Spacing="3">
                                     <TextBlock Style="{ThemeResource BodyStrongTextBlockStyle}" Text="{x:Bind DisplayName}" />
-                                    <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind VirtualPath}" />
+                                    <TextBlock
+                                        Style="{ThemeResource CaptionTextBlockStyle}"
+                                        Text="{x:Bind VirtualPath}"
+                                        TextWrapping="Wrap" />
                                     <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind LastCheckedText}" />
                                 </StackPanel>
-                                <StackPanel Grid.Column="1" Spacing="3">
+                                <StackPanel Spacing="3">
                                     <TextBlock Text="{x:Bind LocationUrl}" TextWrapping="Wrap" />
-                                    <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind RemotePath}" />
-                                    <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind StatusText}" />
+                                    <TextBlock
+                                        Style="{ThemeResource CaptionTextBlockStyle}"
+                                        Text="{x:Bind RemotePath}"
+                                        TextWrapping="Wrap" />
+                                    <TextBlock
+                                        Style="{ThemeResource CaptionTextBlockStyle}"
+                                        Text="{x:Bind StatusText}"
+                                        TextWrapping="Wrap" />
                                 </StackPanel>
-                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
-                                    <Button Click="TestRouteButton_Click" Tag="{x:Bind Id}">
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
-                                            <SymbolIcon Symbol="Accept" />
-                                            <TextBlock Text="{Binding Source={StaticResource Text}, Path=ActionTest}" />
-                                        </StackPanel>
-                                    </Button>
-                                    <Button Click="EditRouteButton_Click" Tag="{x:Bind Id}">
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
-                                            <SymbolIcon Symbol="Edit" />
-                                            <TextBlock Text="{Binding Source={StaticResource Text}, Path=ActionEdit}" />
-                                        </StackPanel>
-                                    </Button>
-                                    <Button Click="RemoveRouteButton_Click" Tag="{x:Bind Id}">
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
-                                            <SymbolIcon Symbol="Delete" />
-                                            <TextBlock Text="{Binding Source={StaticResource Text}, Path=ActionRemove}" />
-                                        </StackPanel>
-                                    </Button>
-                                </StackPanel>
-                            </Grid>
+                                <CommandBar
+                                    HorizontalAlignment="Right"
+                                    Background="Transparent"
+                                    DefaultLabelPosition="Right"
+                                    IsDynamicOverflowEnabled="True">
+                                    <AppBarButton
+                                        AutomationProperties.Name="{x:Bind TestAutomationName}"
+                                        Click="TestRouteButton_Click"
+                                        Icon="Accept"
+                                        Label="{Binding Source={StaticResource Text}, Path=ActionTest}"
+                                        Tag="{x:Bind Id}" />
+                                    <AppBarButton
+                                        AutomationProperties.Name="{x:Bind EditAutomationName}"
+                                        Click="EditRouteButton_Click"
+                                        Icon="Edit"
+                                        Label="{Binding Source={StaticResource Text}, Path=ActionEdit}"
+                                        Tag="{x:Bind Id}" />
+                                    <AppBarButton
+                                        AutomationProperties.Name="{x:Bind RemoveAutomationName}"
+                                        Click="RemoveRouteButton_Click"
+                                        Icon="Delete"
+                                        Label="{Binding Source={StaticResource Text}, Path=ActionRemove}"
+                                        Tag="{x:Bind Id}" />
+                                </CommandBar>
+                            </StackPanel>
                             </Border>
                         </DataTemplate>
                     </ListView.ItemTemplate>

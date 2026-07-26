@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <Compile Include="..\..\src\EasyShare\Services\SharePointRouteParser.cs" Link="Services\SharePointRouteParser.cs" />
+    <Compile Include="..\..\src\EasyShare\Services\DebugVisualTestIsolation.cs" Link="Services\DebugVisualTestIsolation.cs" />
     <Compile Include="..\..\src\EasyShare\Services\RemoteHttpTransport.cs" Link="Services\RemoteHttpTransport.cs" />
     <Compile Include="..\..\src\EasyShare\Services\AppUpdateChannel.cs" Link="Services\AppUpdateChannel.cs" />
     <Compile Include="..\..\src\EasyShare\Services\IncrementalPatch.cs" Link="Services\IncrementalPatch.cs" />

@@ -7,6 +7,440 @@ using EasyShare.Models;
 
 namespace EasyShare.Services;
 
+internal sealed class UploadProgressReporter(
+    IProgress<UploadTransferProgress>? progress,
+    long? totalBytes)
+{
+    private long _maximumObservedBytes;
+    private long _maximumAcknowledgedBytes;
+    private int _commitRiskReported;
+
+    public long ObservedBytes => Volatile.Read(ref _maximumObservedBytes);
+
+    public long AcknowledgedBytes => Volatile.Read(ref _maximumAcknowledgedBytes);
+
+    public bool CommitRiskReported => Volatile.Read(ref _commitRiskReported) != 0;
+
+    public void ReportObserved(long bytesTransferred) =>
+        Report(bytesTransferred, isAcknowledged: false, ref _maximumObservedBytes);
+
+    public void ReportAcknowledged(long bytesTransferred) =>
+        Report(bytesTransferred, isAcknowledged: true, ref _maximumAcknowledgedBytes);
+
+    public void ReportCommitRisk()
+    {
+        Volatile.Write(ref _commitRiskReported, 1);
+        progress?.Report(new UploadTransferProgress(
+            Math.Max(ObservedBytes, AcknowledgedBytes),
+            totalBytes,
+            IsAcknowledged: false,
+            MayHaveCommitted: true));
+    }
+
+    private void Report(
+        long bytesTransferred,
+        bool isAcknowledged,
+        ref long maximumForProgressType)
+    {
+        var normalized = Math.Max(0, bytesTransferred);
+        if (totalBytes is long knownTotal)
+        {
+            normalized = Math.Min(normalized, Math.Max(0, knownTotal));
+        }
+
+        while (true)
+        {
+            var current = Volatile.Read(ref maximumForProgressType);
+            if (normalized <= current)
+            {
+                normalized = current;
+                break;
+            }
+
+            if (Interlocked.CompareExchange(ref maximumForProgressType, normalized, current) == current)
+            {
+                break;
+            }
+        }
+
+        var mayHaveCommitted = totalBytes is { } commitTotal && normalized >= commitTotal;
+        if (mayHaveCommitted)
+        {
+            Volatile.Write(ref _commitRiskReported, 1);
+        }
+
+        progress?.Report(new UploadTransferProgress(
+            normalized,
+            totalBytes,
+            isAcknowledged,
+            MayHaveCommitted: mayHaveCommitted));
+    }
+}
+
+internal static class UploadTechnicalDetails
+{
+    internal const int MaximumLength = 2_048;
+    private static readonly SensitiveDataRedactor Redactor = new();
+
+    public static string? Sanitize(string? details)
+    {
+        if (string.IsNullOrWhiteSpace(details))
+        {
+            return null;
+        }
+
+        var redacted = Redactor.Redact(details).Trim();
+        if (redacted.Length <= MaximumLength)
+        {
+            return redacted;
+        }
+
+        return redacted[..(MaximumLength - 3)] + "...";
+    }
+
+    public static string FromException(string context, Exception exception) =>
+        Sanitize($"{context}: {exception.GetType().Name}: {exception.Message}") ?? context;
+}
+
+internal static class RemoteUploadReceiptParser
+{
+    public static RemoteUploadReceipt? ParseGraph(JsonElement element) =>
+        Build(
+            ReadString(element, "id"),
+            ReadString(element, "eTag") ?? ReadString(element, "@odata.etag"),
+            ReadLong(element, "size"),
+            ReadDate(element, "lastModifiedDateTime"));
+
+    public static RemoteUploadReceipt? ParseSharePoint(JsonElement root)
+    {
+        var item = root;
+        if (root.TryGetProperty("d", out var legacy) && legacy.ValueKind == JsonValueKind.Object)
+        {
+            item = legacy;
+        }
+
+        return Build(
+            ReadString(item, "UniqueId"),
+            ReadString(item, "ETag") ??
+            ReadString(item, "@odata.etag") ??
+            ReadString(item, "odata.etag"),
+            ReadLong(item, "Length"),
+            ReadDate(item, "TimeLastModified"));
+    }
+
+    private static RemoteUploadReceipt? Build(
+        string? itemId,
+        string? etag,
+        long? size,
+        DateTimeOffset? modifiedAt) =>
+        string.IsNullOrWhiteSpace(itemId) &&
+        string.IsNullOrWhiteSpace(etag) &&
+        size is null &&
+        modifiedAt is null
+            ? null
+            : new RemoteUploadReceipt(itemId, etag, size, modifiedAt);
+
+    private static string? ReadString(JsonElement element, string propertyName) =>
+        element.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String
+            ? property.GetString()
+            : null;
+
+    private static long? ReadLong(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var property))
+        {
+            return null;
+        }
+
+        return property.ValueKind switch
+        {
+            JsonValueKind.Number when property.TryGetInt64(out var value) => value,
+            JsonValueKind.String when long.TryParse(property.GetString(), out var value) => value,
+            _ => null
+        };
+    }
+
+    private static DateTimeOffset? ReadDate(JsonElement element, string propertyName) =>
+        DateTimeOffset.TryParse(ReadString(element, propertyName), out var value)
+            ? value
+            : null;
+}
+
+internal sealed class ProgressReadStream(
+    Stream inner,
+    long startPosition,
+    UploadProgressReporter progress) : Stream
+{
+    private long _bytesRead;
+
+    public override bool CanRead => inner.CanRead;
+
+    public override bool CanSeek => inner.CanSeek;
+
+    public override bool CanWrite => false;
+
+    public override long Length => inner.Length;
+
+    public override long Position
+    {
+        get => inner.Position;
+        set => inner.Position = value;
+    }
+
+    public override void Flush()
+    {
+    }
+
+    public override int Read(byte[] buffer, int offset, int count)
+    {
+        var read = inner.Read(buffer, offset, count);
+        ReportRead(read);
+        return read;
+    }
+
+    public override int Read(Span<byte> buffer)
+    {
+        var read = inner.Read(buffer);
+        ReportRead(read);
+        return read;
+    }
+
+    public override async Task<int> ReadAsync(
+        byte[] buffer,
+        int offset,
+        int count,
+        CancellationToken cancellationToken)
+    {
+        var read = await inner.ReadAsync(buffer, offset, count, cancellationToken).ConfigureAwait(false);
+        ReportRead(read);
+        return read;
+    }
+
+    public override async ValueTask<int> ReadAsync(
+        Memory<byte> buffer,
+        CancellationToken cancellationToken = default)
+    {
+        var read = await inner.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+        ReportRead(read);
+        return read;
+    }
+
+    public override long Seek(long offset, SeekOrigin origin) => inner.Seek(offset, origin);
+
+    public override void SetLength(long value) => throw new NotSupportedException();
+
+    public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+    protected override void Dispose(bool disposing)
+    {
+        // HttpContent owns this wrapper, not the caller's source stream.
+    }
+
+    private void ReportRead(int read)
+    {
+        if (read <= 0)
+        {
+            return;
+        }
+
+        var sequentialBytes = Interlocked.Add(ref _bytesRead, read);
+        if (inner.CanSeek)
+        {
+            try
+            {
+                progress.ReportObserved(Math.Max(0, inner.Position - startPosition));
+                return;
+            }
+            catch (NotSupportedException)
+            {
+            }
+            catch (IOException)
+            {
+            }
+        }
+
+        progress.ReportObserved(sequentialBytes);
+    }
+}
+
+internal static class UploadFailureClassifier
+{
+    public static UploadAttemptResult FromStatus(
+        HttpStatusCode statusCode,
+        string serviceName,
+        string technicalContext)
+    {
+        var (state, kind, message) = statusCode switch
+        {
+            HttpStatusCode.Unauthorized => (
+                UploadAttemptState.RetryableFailure,
+                SyncFailureKind.Session,
+                $"Sua sessão do {serviceName} expirou. Entre novamente e tente de novo."),
+            HttpStatusCode.Forbidden => (
+                UploadAttemptState.RetryableFailure,
+                SyncFailureKind.Permission,
+                $"Sua conta não tem permissão para enviar este arquivo ao {serviceName}."),
+            HttpStatusCode.Conflict or HttpStatusCode.PreconditionFailed => (
+                UploadAttemptState.Conflict,
+                SyncFailureKind.Conflict,
+                "O item remoto foi alterado ou já existe no destino."),
+            HttpStatusCode.TooManyRequests => (
+                UploadAttemptState.RetryableFailure,
+                SyncFailureKind.ServiceBusy,
+                $"{serviceName} está ocupado agora. Aguarde um pouco e tente novamente."),
+            HttpStatusCode.InsufficientStorage => (
+                UploadAttemptState.RetryableFailure,
+                SyncFailureKind.Quota,
+                $"Não há espaço suficiente no {serviceName} para concluir o envio."),
+            HttpStatusCode.RequestTimeout => (
+                UploadAttemptState.RetryableFailure,
+                SyncFailureKind.Network,
+                $"A conexão com o {serviceName} demorou demais. Tente novamente."),
+            HttpStatusCode.NotFound => (
+                UploadAttemptState.RetryableFailure,
+                SyncFailureKind.RouteUnavailable,
+                "A pasta de destino não foi encontrada. Revise a conexão e tente novamente."),
+            _ when (int)statusCode >= 500 => (
+                UploadAttemptState.RetryableFailure,
+                SyncFailureKind.ServiceBusy,
+                $"{serviceName} está temporariamente indisponível. Aguarde um pouco e tente novamente."),
+            _ => (
+                UploadAttemptState.RetryableFailure,
+                SyncFailureKind.Unknown,
+                $"Não foi possível concluir o envio ao {serviceName}. Tente novamente.")
+        };
+
+        return new UploadAttemptResult(
+            state,
+            message,
+            FailureKind: kind,
+            TechnicalDetails: UploadTechnicalDetails.Sanitize(
+                $"{technicalContext} returned HTTP {(int)statusCode} ({statusCode})."));
+    }
+}
+
+internal static class RemoteUploadVerificationResults
+{
+    public static RemoteUploadVerificationResult Confirmed(RemoteUploadReceipt receipt) =>
+        new(
+            RemoteUploadVerificationState.Confirmed,
+            receipt,
+            SyncFailureKind.None);
+
+    public static RemoteUploadVerificationResult NotFound() =>
+        new(
+            RemoteUploadVerificationState.NotFound,
+            FailureKind: SyncFailureKind.None);
+
+    public static RemoteUploadVerificationResult Unavailable(
+        string userMessage,
+        SyncFailureKind failureKind,
+        string? technicalDetails = null) =>
+        new(
+            RemoteUploadVerificationState.Unavailable,
+            FailureKind: failureKind,
+            UserMessage: userMessage,
+            TechnicalDetails: UploadTechnicalDetails.Sanitize(technicalDetails));
+
+    public static RemoteUploadVerificationResult FromStatus(
+        HttpStatusCode statusCode,
+        string serviceName,
+        string technicalContext)
+    {
+        if (statusCode == HttpStatusCode.NotFound)
+        {
+            return NotFound();
+        }
+
+        var classified = UploadFailureClassifier.FromStatus(statusCode, serviceName, technicalContext);
+        return Unavailable(
+            classified.Error ?? $"Não foi possível consultar o item no {serviceName}.",
+            classified.FailureKind,
+            classified.TechnicalDetails);
+    }
+}
+
+internal static class RemoteDeleteResults
+{
+    public static RemoteDeleteAttemptResult FromStatus(
+        HttpStatusCode statusCode,
+        string serviceName,
+        string technicalContext)
+    {
+        if ((int)statusCode is >= 200 and <= 299 || statusCode == HttpStatusCode.NotFound)
+        {
+            return new RemoteDeleteAttemptResult(
+                RemoteDeleteAttemptState.Succeeded,
+                SyncFailureKind.None,
+                HttpStatusCode: (int)statusCode);
+        }
+
+        var (state, kind, message) = statusCode switch
+        {
+            HttpStatusCode.Unauthorized => (
+                RemoteDeleteAttemptState.RetryableFailure,
+                SyncFailureKind.Session,
+                $"Sua sessão do {serviceName} expirou. Entre novamente e tente excluir de novo."),
+            HttpStatusCode.Forbidden => (
+                RemoteDeleteAttemptState.TerminalFailure,
+                SyncFailureKind.Permission,
+                $"Sua conta não tem permissão para excluir este item no {serviceName}."),
+            HttpStatusCode.Conflict or HttpStatusCode.PreconditionFailed => (
+                RemoteDeleteAttemptState.TerminalFailure,
+                SyncFailureKind.Conflict,
+                "O item está em uso, bloqueado ou foi alterado no destino."),
+            _ when (int)statusCode == 423 => (
+                RemoteDeleteAttemptState.TerminalFailure,
+                SyncFailureKind.Conflict,
+                "O item está bloqueado no destino. Libere-o e tente novamente."),
+            HttpStatusCode.RequestTimeout => (
+                RemoteDeleteAttemptState.RetryableFailure,
+                SyncFailureKind.Network,
+                $"A conexão com o {serviceName} demorou demais. A exclusão será tentada novamente."),
+            HttpStatusCode.TooManyRequests => (
+                RemoteDeleteAttemptState.RetryableFailure,
+                SyncFailureKind.ServiceBusy,
+                $"{serviceName} está ocupado agora. A exclusão será tentada novamente."),
+            _ when (int)statusCode >= 500 => (
+                RemoteDeleteAttemptState.RetryableFailure,
+                SyncFailureKind.ServiceBusy,
+                $"{serviceName} está temporariamente indisponível. A exclusão será tentada novamente."),
+            _ => (
+                RemoteDeleteAttemptState.TerminalFailure,
+                SyncFailureKind.Unknown,
+                $"Não foi possível excluir o item no {serviceName}. Verifique os detalhes e tente novamente.")
+        };
+
+        return new RemoteDeleteAttemptResult(
+            state,
+            kind,
+            message,
+            UploadTechnicalDetails.Sanitize(
+                $"{technicalContext} returned HTTP {(int)statusCode} ({statusCode})."),
+            (int)statusCode);
+    }
+
+    public static RemoteDeleteAttemptResult Retryable(
+        SyncFailureKind kind,
+        string message,
+        string technicalDetails) =>
+        new(
+            RemoteDeleteAttemptState.RetryableFailure,
+            kind,
+            message,
+            UploadTechnicalDetails.Sanitize(technicalDetails));
+
+    public static RemoteDeleteAttemptResult Terminal(
+        SyncFailureKind kind,
+        string message,
+        string? technicalDetails = null) =>
+        new(
+            RemoteDeleteAttemptState.TerminalFailure,
+            kind,
+            message,
+            UploadTechnicalDetails.Sanitize(technicalDetails));
+}
+
 internal sealed class GraphSharePointContentService : ISharePointContentTransfer
 {
     private const string GraphBaseUrl = "https://graph.microsoft.com/v1.0";
@@ -201,6 +635,138 @@ internal sealed class GraphSharePointContentService : ISharePointContentTransfer
         }
     }
 
+    public async Task<RemoteUploadVerificationResult> VerifyRemoteUploadAsync(
+        DriveRoute route,
+        string relativePath,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(route);
+        if (!TryGetRoute(route, out var graphRoute))
+        {
+            return RemoteUploadVerificationResults.Unavailable(
+                "A pasta de destino não está pronta para verificação remota.",
+                SyncFailureKind.RouteUnavailable);
+        }
+
+        var normalized = NormalizeRelativePath(relativePath);
+        if (string.IsNullOrWhiteSpace(GetFileName(normalized)))
+        {
+            return RemoteUploadVerificationResults.Unavailable(
+                "Não foi possível identificar o arquivo para verificação remota.",
+                SyncFailureKind.RouteUnavailable);
+        }
+
+        try
+        {
+            var token = await GetTokenAsync(cancellationToken).ConfigureAwait(false);
+            if (token is null)
+            {
+                return RemoteUploadVerificationResults.Unavailable(
+                    "Sua sessão expirou. Entre novamente para confirmar o arquivo no SharePoint.",
+                    SyncFailureKind.Session);
+            }
+
+            var item = await GetGraphItemAsync(graphRoute, normalized, token, cancellationToken)
+                .ConfigureAwait(false);
+            if (item is null)
+            {
+                return RemoteUploadVerificationResults.NotFound();
+            }
+
+            return RemoteUploadVerificationResults.Confirmed(
+                new RemoteUploadReceipt(
+                    item.Id,
+                    item.ETag,
+                    item.Length,
+                    item.ModifiedAt == DateTimeOffset.MinValue ? null : item.ModifiedAt));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException exception)
+        {
+            return RemoteUploadVerificationResults.Unavailable(
+                "O Microsoft Graph demorou demais para confirmar o arquivo. Aguarde e tente novamente.",
+                SyncFailureKind.Network,
+                UploadTechnicalDetails.FromException(
+                    "Microsoft Graph remote verification timed out",
+                    exception));
+        }
+        catch (SharePointExplorerException exception)
+        {
+            if (exception.Status == SharePointExplorerStatus.NotFound)
+            {
+                return RemoteUploadVerificationResults.NotFound();
+            }
+
+            return exception.HttpStatusCode is HttpStatusCode statusCode
+                ? RemoteUploadVerificationResults.FromStatus(
+                    statusCode,
+                    "Microsoft Graph",
+                    "Microsoft Graph remote verification")
+                : RemoteUploadVerificationResults.Unavailable(
+                    "Não foi possível confirmar o arquivo no Microsoft Graph agora.",
+                    exception.Status switch
+                    {
+                        SharePointExplorerStatus.AuthenticationRequired => SyncFailureKind.Session,
+                        SharePointExplorerStatus.Forbidden => SyncFailureKind.Permission,
+                        SharePointExplorerStatus.Throttled or SharePointExplorerStatus.ServiceUnavailable =>
+                            SyncFailureKind.ServiceBusy,
+                        SharePointExplorerStatus.InvalidResponse => SyncFailureKind.Integrity,
+                        _ => SyncFailureKind.Unknown
+                    },
+                    UploadTechnicalDetails.FromException(
+                        "Microsoft Graph remote verification failed",
+                        exception));
+        }
+        catch (TimeoutException exception)
+        {
+            return RemoteUploadVerificationResults.Unavailable(
+                "O Microsoft Graph demorou demais para confirmar o arquivo. Aguarde e tente novamente.",
+                SyncFailureKind.Network,
+                UploadTechnicalDetails.FromException(
+                    "Microsoft Graph remote verification timed out",
+                    exception));
+        }
+        catch (HttpRequestException exception)
+        {
+            return RemoteUploadVerificationResults.Unavailable(
+                "Não foi possível consultar o Microsoft Graph. Verifique a conexão e tente novamente.",
+                SyncFailureKind.Network,
+                UploadTechnicalDetails.FromException(
+                    "Microsoft Graph remote verification request failed",
+                    exception));
+        }
+        catch (IOException exception)
+        {
+            return RemoteUploadVerificationResults.Unavailable(
+                "Não foi possível concluir a leitura da confirmação remota. Tente novamente.",
+                SyncFailureKind.Network,
+                UploadTechnicalDetails.FromException(
+                    "Microsoft Graph remote verification response failed",
+                    exception));
+        }
+        catch (JsonException exception)
+        {
+            return RemoteUploadVerificationResults.Unavailable(
+                "O Microsoft Graph retornou uma confirmação que não pôde ser validada.",
+                SyncFailureKind.Integrity,
+                UploadTechnicalDetails.FromException(
+                    "Microsoft Graph remote verification response was invalid",
+                    exception));
+        }
+        catch (Exception exception)
+        {
+            return RemoteUploadVerificationResults.Unavailable(
+                "Não foi possível confirmar o arquivo no Microsoft Graph agora.",
+                SyncFailureKind.Unknown,
+                UploadTechnicalDetails.FromException(
+                    "Microsoft Graph remote verification failed",
+                    exception));
+        }
+    }
+
     public async Task<bool> DownloadFileAsync(
         DriveRoute route,
         string relativePath,
@@ -322,7 +888,8 @@ internal sealed class GraphSharePointContentService : ISharePointContentTransfer
         string relativePath,
         Stream content,
         DateTimeOffset? expectedModifiedAt,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IProgress<UploadTransferProgress>? progress = null)
     {
         ArgumentNullException.ThrowIfNull(route);
         ArgumentNullException.ThrowIfNull(content);
@@ -333,21 +900,28 @@ internal sealed class GraphSharePointContentService : ISharePointContentTransfer
 
         if (!TryGetRoute(route, out var graphRoute))
         {
-            return Retryable("A rota ainda não possui identificadores do Microsoft Graph.");
+            return Retryable(
+                "Esta pasta ainda não está pronta para usar o Microsoft Graph.",
+                SyncFailureKind.RouteUnavailable);
         }
 
         var normalized = NormalizeRelativePath(relativePath);
         if (string.IsNullOrWhiteSpace(GetFileName(normalized)))
         {
-            return Retryable("Caminho de arquivo inválido.");
+            return Retryable(
+                "Não foi possível identificar o arquivo que deve ser enviado.",
+                SyncFailureKind.RouteUnavailable);
         }
 
         var token = await GetTokenAsync(cancellationToken).ConfigureAwait(false);
         if (token is null)
         {
-            return Retryable("Entre novamente para enviar arquivos ao SharePoint.");
+            return Retryable(
+                "Sua sessão expirou. Entre novamente para enviar arquivos ao SharePoint.",
+                SyncFailureKind.Session);
         }
 
+        UploadProgressReporter? progressReporter = null;
         try
         {
             string? expectedETag = null;
@@ -361,14 +935,18 @@ internal sealed class GraphSharePointContentService : ISharePointContentTransfer
                 {
                     return new UploadAttemptResult(
                         UploadAttemptState.Conflict,
-                        "O arquivo remoto mudou enquanto o arquivo local estava sendo editado.");
+                        "O arquivo remoto mudou enquanto o arquivo local estava sendo editado.",
+                        FailureKind: SyncFailureKind.Conflict);
                 }
 
                 if (string.IsNullOrWhiteSpace(current.ETag))
                 {
                     return new UploadAttemptResult(
                         UploadAttemptState.Conflict,
-                        "O Microsoft Graph não forneceu a versão necessária para substituir o arquivo com segurança.");
+                        "Não foi possível confirmar a versão remota antes de substituir o arquivo.",
+                        FailureKind: SyncFailureKind.Conflict,
+                        TechnicalDetails: UploadTechnicalDetails.Sanitize(
+                            "Microsoft Graph did not return an ETag for the existing driveItem."));
                 }
 
                 expectedETag = current.ETag;
@@ -379,9 +957,11 @@ internal sealed class GraphSharePointContentService : ISharePointContentTransfer
             if (remainingLength is null)
             {
                 return Retryable(
-                    "O Microsoft Graph exige um fluxo reposicionável com tamanho conhecido para uploads seguros.");
+                    "Não foi possível determinar o tamanho do arquivo para enviá-lo com segurança.",
+                    SyncFailureKind.PayloadUnavailable);
             }
 
+            progressReporter = new UploadProgressReporter(progress, remainingLength);
             if (remainingLength > UploadSessionThresholdBytes ||
                 (expectedETag is not null && remainingLength > 0))
             {
@@ -393,10 +973,19 @@ internal sealed class GraphSharePointContentService : ISharePointContentTransfer
                     token,
                     expectedETag,
                     existingItemId,
+                    progressReporter,
                     cancellationToken).ConfigureAwait(false);
             }
 
-            using var streamContent = new StreamContent(new NonDisposingReadStream(content), 81_920);
+            var contentStart = content.Position;
+            if (remainingLength == 0)
+            {
+                progressReporter.ReportCommitRisk();
+            }
+
+            using var streamContent = new StreamContent(
+                new ProgressReadStream(content, contentStart, progressReporter),
+                81_920);
             streamContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
             streamContent.Headers.ContentLength = remainingLength;
             using var response = await SendGraphAsync(
@@ -407,19 +996,88 @@ internal sealed class GraphSharePointContentService : ISharePointContentTransfer
                 HttpCompletionOption.ResponseHeadersRead,
                 cancellationToken,
                 expectedETag).ConfigureAwait(false);
-            return ToUploadResult(response.StatusCode);
+            if (!response.IsSuccessStatusCode)
+            {
+                return ToUploadResult(response.StatusCode);
+            }
+
+            var receiptRead = await ReadCommittedReceiptSafelyAsync(
+                    response,
+                    "Microsoft Graph simple upload receipt",
+                    cancellationToken)
+                .ConfigureAwait(false);
+            progressReporter.ReportAcknowledged(remainingLength.Value);
+            return new UploadAttemptResult(
+                UploadAttemptState.Succeeded,
+                Receipt: receiptRead.Receipt,
+                FailureKind: SyncFailureKind.None,
+                TechnicalDetails: receiptRead.TechnicalDetails);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
-        catch
+        catch (OperationCanceledException exception)
         {
-            return Retryable("Não foi possível enviar o arquivo pelo Microsoft Graph agora.");
+            return Retryable(
+                "O Microsoft Graph demorou demais para responder. Aguarde um pouco e tente novamente.",
+                SyncFailureKind.Network,
+                UploadTechnicalDetails.FromException("Microsoft Graph upload timed out", exception),
+                isCommitAmbiguous: progressReporter?.CommitRiskReported == true);
+        }
+        catch (TimeoutException exception)
+        {
+            return Retryable(
+                "O Microsoft Graph demorou demais para responder. Verifique a conexão e tente novamente.",
+                SyncFailureKind.Network,
+                UploadTechnicalDetails.FromException("Microsoft Graph upload timed out", exception),
+                isCommitAmbiguous: progressReporter?.CommitRiskReported == true);
+        }
+        catch (HttpRequestException exception)
+        {
+            return Retryable(
+                "Não foi possível alcançar o Microsoft Graph. Verifique a conexão e tente novamente.",
+                SyncFailureKind.Network,
+                UploadTechnicalDetails.FromException("Microsoft Graph upload request failed", exception),
+                isCommitAmbiguous: progressReporter?.CommitRiskReported == true);
+        }
+        catch (IOException exception)
+        {
+            return Retryable(
+                "Não foi possível ler o arquivo local para concluir o envio.",
+                SyncFailureKind.PayloadUnavailable,
+                UploadTechnicalDetails.FromException("Local upload stream failed", exception));
+        }
+        catch (JsonException exception)
+        {
+            return Retryable(
+                "O Microsoft Graph retornou uma confirmação que não pôde ser validada.",
+                SyncFailureKind.Integrity,
+                UploadTechnicalDetails.FromException(
+                    "Microsoft Graph upload response was invalid",
+                    exception));
+        }
+        catch (SharePointExplorerException exception)
+        {
+            return exception.HttpStatusCode is HttpStatusCode statusCode
+                ? ToUploadResult(statusCode)
+                : Retryable(
+                    "Não foi possível confirmar o destino no Microsoft Graph.",
+                    SyncFailureKind.Unknown,
+                    UploadTechnicalDetails.FromException(
+                        "Microsoft Graph destination verification failed",
+                        exception));
+        }
+        catch (Exception exception)
+        {
+            return Retryable(
+                "Não foi possível enviar o arquivo pelo Microsoft Graph agora.",
+                SyncFailureKind.Unknown,
+                UploadTechnicalDetails.FromException("Microsoft Graph upload failed", exception));
         }
     }
 
-    public async Task<bool> DeleteItemAsync(
+    public async Task<RemoteDeleteAttemptResult> TryDeleteItemAsync(
         DriveRoute route,
         string relativePath,
         bool isDirectory,
@@ -429,19 +1087,26 @@ internal sealed class GraphSharePointContentService : ISharePointContentTransfer
         _ = isDirectory;
         if (!TryGetRoute(route, out var graphRoute))
         {
-            return false;
+            return RemoteDeleteResults.Terminal(
+                SyncFailureKind.RouteUnavailable,
+                "A pasta de destino não está disponível para exclusão.");
         }
 
         var normalized = NormalizeRelativePath(relativePath);
         if (string.IsNullOrWhiteSpace(normalized))
         {
-            return false;
+            return RemoteDeleteResults.Terminal(
+                SyncFailureKind.RouteUnavailable,
+                "Não foi possível identificar o item que deve ser excluído.");
         }
 
         var token = await GetTokenAsync(cancellationToken).ConfigureAwait(false);
         if (token is null)
         {
-            return false;
+            return RemoteDeleteResults.Retryable(
+                SyncFailureKind.Session,
+                "Sua sessão do Microsoft Graph expirou. Entre novamente para concluir a exclusão.",
+                "Microsoft Graph delete did not start because no access token was available.");
         }
 
         try
@@ -453,17 +1118,52 @@ internal sealed class GraphSharePointContentService : ISharePointContentTransfer
                 content: null,
                 HttpCompletionOption.ResponseHeadersRead,
                 cancellationToken).ConfigureAwait(false);
-            return response.IsSuccessStatusCode;
+            return RemoteDeleteResults.FromStatus(
+                response.StatusCode,
+                "Microsoft Graph",
+                "Microsoft Graph delete");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
-        catch
+        catch (OperationCanceledException exception)
         {
-            return false;
+            return RemoteDeleteResults.Retryable(
+                SyncFailureKind.Network,
+                "O Microsoft Graph demorou demais para responder. A exclusão será tentada novamente.",
+                UploadTechnicalDetails.FromException("Microsoft Graph delete timed out", exception));
+        }
+        catch (TimeoutException exception)
+        {
+            return RemoteDeleteResults.Retryable(
+                SyncFailureKind.Network,
+                "O Microsoft Graph demorou demais para responder. A exclusão será tentada novamente.",
+                UploadTechnicalDetails.FromException("Microsoft Graph delete timed out", exception));
+        }
+        catch (HttpRequestException exception)
+        {
+            return RemoteDeleteResults.Retryable(
+                SyncFailureKind.Network,
+                "Não foi possível alcançar o Microsoft Graph. A exclusão será tentada novamente.",
+                UploadTechnicalDetails.FromException("Microsoft Graph delete request failed", exception));
+        }
+        catch (Exception exception)
+        {
+            return RemoteDeleteResults.Retryable(
+                SyncFailureKind.Unknown,
+                "Não foi possível concluir a exclusão pelo Microsoft Graph agora.",
+                UploadTechnicalDetails.FromException("Microsoft Graph delete failed", exception));
         }
     }
+
+    public async Task<bool> DeleteItemAsync(
+        DriveRoute route,
+        string relativePath,
+        bool isDirectory,
+        CancellationToken cancellationToken = default) =>
+        (await TryDeleteItemAsync(route, relativePath, isDirectory, cancellationToken)
+            .ConfigureAwait(false)).State == RemoteDeleteAttemptState.Succeeded;
 
     public async Task<bool> RenameItemAsync(
         DriveRoute route,
@@ -543,11 +1243,14 @@ internal sealed class GraphSharePointContentService : ISharePointContentTransfer
         string token,
         string? expectedETag,
         string? existingItemId,
+        UploadProgressReporter progress,
         CancellationToken cancellationToken)
     {
         if (!source.CanSeek)
         {
-            return Retryable("Arquivos acima de 250 MB precisam de um fluxo com tamanho conhecido para envio em partes.");
+            return Retryable(
+                "Arquivos grandes precisam de um fluxo reposicionável para envio em partes.",
+                SyncFailureKind.PayloadUnavailable);
         }
 
         var fileName = GetFileName(relativePath);
@@ -581,7 +1284,10 @@ internal sealed class GraphSharePointContentService : ISharePointContentTransfer
         var uploadUrlText = ReadOptionalString(sessionDocument.RootElement, "uploadUrl");
         if (!TryValidateUploadUrl(uploadUrlText, out var uploadUrl))
         {
-            return Retryable("O Microsoft Graph não retornou uma sessão de upload confiável.");
+            return Retryable(
+                "O Microsoft Graph não retornou uma sessão de upload confiável.",
+                SyncFailureKind.Integrity,
+                "The createUploadSession response did not contain a validated HTTPS upload URL.");
         }
 
         var buffer = ArrayPool<byte>.Shared.Rent(UploadChunkSize);
@@ -597,7 +1303,10 @@ internal sealed class GraphSharePointContentService : ISharePointContentTransfer
                 offsetAttempts.TryGetValue(offset, out var attemptsAtOffset);
                 if (attemptsAtOffset >= 3)
                 {
-                    return Retryable("A sessão de upload não avançou após três tentativas no mesmo intervalo.");
+                    return Retryable(
+                        "A sessão de upload não avançou. Aguarde um pouco e tente novamente.",
+                        SyncFailureKind.ServiceBusy,
+                        $"The upload session did not advance after {attemptsAtOffset} attempts at byte {offset}.");
                 }
 
                 offsetAttempts[offset] = attemptsAtOffset + 1;
@@ -608,16 +1317,25 @@ internal sealed class GraphSharePointContentService : ISharePointContentTransfer
                         cancellationToken)
                     .ConfigureAwait(false))
                 {
-                    return Retryable("Não foi possível reposicionar o fluxo para retomar a sessão de upload.");
+                    return Retryable(
+                        "Não foi possível reler o arquivo local para retomar o envio.",
+                        SyncFailureKind.PayloadUnavailable,
+                        $"The upload source could not be positioned at byte {sourceStart + offset}.");
                 }
 
                 var requested = (int)Math.Min(UploadChunkSize, totalLength - offset);
                 var read = await ReadChunkAsync(source, buffer, requested, cancellationToken).ConfigureAwait(false);
                 if (read <= 0)
                 {
-                    return Retryable("O fluxo de upload terminou antes do tamanho esperado.");
+                    return Retryable(
+                        "O arquivo local terminou antes do tamanho esperado.",
+                        SyncFailureKind.PayloadUnavailable,
+                        $"The upload source ended at byte {offset} before the expected length {totalLength}.");
                 }
 
+                // Persist remote-risk evidence before this chunk is handed to
+                // HttpClient. A crash after this point must verify remotely.
+                progress.ReportObserved(offset + read);
                 using var response = await SendUploadChunkWithRetryAsync(
                     uploadUrl,
                     buffer,
@@ -630,7 +1348,17 @@ internal sealed class GraphSharePointContentService : ISharePointContentTransfer
                 if (response.StatusCode is HttpStatusCode.OK or HttpStatusCode.Created)
                 {
                     committed = true;
-                    return new UploadAttemptResult(UploadAttemptState.Succeeded);
+                    var receiptRead = await ReadCommittedReceiptSafelyAsync(
+                            response,
+                            "Microsoft Graph upload-session receipt",
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    progress.ReportAcknowledged(totalLength);
+                    return new UploadAttemptResult(
+                        UploadAttemptState.Succeeded,
+                        Receipt: receiptRead.Receipt,
+                        FailureKind: SyncFailureKind.None,
+                        TechnicalDetails: receiptRead.TechnicalDetails);
                 }
 
                 if (response.StatusCode == HttpStatusCode.Accepted)
@@ -642,6 +1370,7 @@ internal sealed class GraphSharePointContentService : ISharePointContentTransfer
                             totalLength,
                             cancellationToken)
                         .ConfigureAwait(false);
+                    progress.ReportAcknowledged(offset);
                     continue;
                 }
 
@@ -652,6 +1381,7 @@ internal sealed class GraphSharePointContentService : ISharePointContentTransfer
                     if (serverOffset is not null)
                     {
                         offset = serverOffset.Value;
+                        progress.ReportAcknowledged(offset);
                         continue;
                     }
                 }
@@ -659,7 +1389,11 @@ internal sealed class GraphSharePointContentService : ISharePointContentTransfer
                 return ToUploadResult(response.StatusCode);
             }
 
-            return Retryable("A sessão de upload foi encerrada sem confirmação do Microsoft Graph.");
+            return Retryable(
+                "A sessão de upload terminou sem confirmação remota.",
+                SyncFailureKind.Integrity,
+                $"The upload session loop ended at acknowledged byte {progress.AcknowledgedBytes} " +
+                $"for expected length {totalLength}.");
         }
         finally
         {
@@ -694,7 +1428,10 @@ internal sealed class GraphSharePointContentService : ISharePointContentTransfer
                 var response = await _httpClient
                     .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
                     .ConfigureAwait(false);
-                if (attempt >= maximumAttempts || !IsTransientUploadStatus(response.StatusCode))
+                var isFinalChunk = offset + count >= totalLength;
+                if (attempt >= maximumAttempts ||
+                    isFinalChunk ||
+                    !IsTransientUploadStatus(response.StatusCode))
                 {
                     return response;
                 }
@@ -703,12 +1440,16 @@ internal sealed class GraphSharePointContentService : ISharePointContentTransfer
                 response.Dispose();
                 await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
             }
-            catch (HttpRequestException) when (attempt < maximumAttempts)
+            catch (HttpRequestException) when (
+                offset + count < totalLength &&
+                attempt < maximumAttempts)
             {
                 await Task.Delay(TimeSpan.FromSeconds(attempt), cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (
-                !cancellationToken.IsCancellationRequested && attempt < maximumAttempts)
+                !cancellationToken.IsCancellationRequested &&
+                offset + count < totalLength &&
+                attempt < maximumAttempts)
             {
                 await Task.Delay(TimeSpan.FromSeconds(attempt), cancellationToken).ConfigureAwait(false);
             }
@@ -832,7 +1573,10 @@ internal sealed class GraphSharePointContentService : ISharePointContentTransfer
         }
 
         using var document = await ReadJsonAsync(response, cancellationToken).ConfigureAwait(false);
-        return ParseGraphItem(document.RootElement);
+        return ParseGraphItem(document.RootElement) ??
+               throw new SharePointExplorerException(
+                   SharePointExplorerStatus.InvalidResponse,
+                   "O Microsoft Graph não retornou metadados completos para o item solicitado.");
     }
 
     private async Task<string?> GetTokenAsync(CancellationToken cancellationToken)
@@ -883,6 +1627,60 @@ internal sealed class GraphSharePointContentService : ISharePointContentTransfer
         }
     }
 
+    private static async Task<CommittedReceiptReadResult> ReadCommittedReceiptSafelyAsync(
+        HttpResponseMessage response,
+        string technicalContext,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var receipt = await ReadRemoteUploadReceiptAsync(response, cancellationToken).ConfigureAwait(false);
+            return receipt is not null
+                ? new CommittedReceiptReadResult(receipt, null)
+                : new CommittedReceiptReadResult(
+                    null,
+                    UploadTechnicalDetails.Sanitize(
+                        $"{technicalContext} did not include supported remote confirmation fields."));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            return new CommittedReceiptReadResult(
+                null,
+                UploadTechnicalDetails.FromException(
+                    $"{technicalContext} could not be parsed after the remote commit",
+                    exception));
+        }
+    }
+
+    private static async Task<RemoteUploadReceipt?> ReadRemoteUploadReceiptAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
+        if (response.Content.Headers.ContentLength == 0)
+        {
+            return null;
+        }
+
+        using var parseTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        parseTimeout.CancelAfter(TimeSpan.FromMinutes(2));
+        await using var stream = await response.Content
+            .ReadAsStreamAsync(parseTimeout.Token)
+            .ConfigureAwait(false);
+        if (stream.CanSeek && stream.Length == 0)
+        {
+            return null;
+        }
+
+        using var document = await JsonDocument
+            .ParseAsync(stream, cancellationToken: parseTimeout.Token)
+            .ConfigureAwait(false);
+        return RemoteUploadReceiptParser.ParseGraph(document.RootElement);
+    }
+
     private static GraphItem? ParseGraphItem(JsonElement element)
     {
         var id = ReadOptionalString(element, "id");
@@ -897,9 +1695,9 @@ internal sealed class GraphSharePointContentService : ISharePointContentTransfer
             out var parsedModifiedAt)
             ? parsedModifiedAt
             : DateTimeOffset.MinValue;
-        var length = element.TryGetProperty("size", out var size) && size.TryGetInt64(out var parsedSize)
+        long? length = element.TryGetProperty("size", out var size) && size.TryGetInt64(out var parsedSize)
             ? parsedSize
-            : 0;
+            : null;
         var isDirectory = element.TryGetProperty("folder", out var folder) && folder.ValueKind == JsonValueKind.Object;
         return new GraphItem(id, name, isDirectory, length, modifiedAt, ReadOptionalString(element, "eTag"));
     }
@@ -1108,16 +1906,14 @@ internal sealed class GraphSharePointContentService : ISharePointContentTransfer
     }
 
     private static UploadAttemptResult ToUploadResult(HttpStatusCode statusCode) =>
-        statusCode switch
-        {
-            HttpStatusCode.OK or HttpStatusCode.Created or HttpStatusCode.NoContent =>
-                new UploadAttemptResult(UploadAttemptState.Succeeded),
-            HttpStatusCode.Conflict or HttpStatusCode.PreconditionFailed =>
-                new UploadAttemptResult(
-                    UploadAttemptState.Conflict,
-                    "O item remoto foi alterado ou já existe no destino."),
-            _ => Retryable($"O Microsoft Graph retornou HTTP {(int)statusCode} durante o upload.")
-        };
+        statusCode is HttpStatusCode.OK or HttpStatusCode.Created or HttpStatusCode.NoContent
+            ? new UploadAttemptResult(
+                UploadAttemptState.Succeeded,
+                FailureKind: SyncFailureKind.None)
+            : UploadFailureClassifier.FromStatus(
+                statusCode,
+                "Microsoft Graph",
+                "Microsoft Graph upload");
 
     private static SharePointExplorerException CreateGraphFailure(HttpResponseMessage response)
     {
@@ -1147,21 +1943,34 @@ internal sealed class GraphSharePointContentService : ISharePointContentTransfer
             retryAfter);
     }
 
-    private static UploadAttemptResult Retryable(string message) =>
-        new(UploadAttemptState.RetryableFailure, message);
+    private static UploadAttemptResult Retryable(
+        string message,
+        SyncFailureKind failureKind = SyncFailureKind.Unknown,
+        string? technicalDetails = null,
+        bool isCommitAmbiguous = false) =>
+        new(
+            UploadAttemptState.RetryableFailure,
+            message,
+            FailureKind: failureKind,
+            TechnicalDetails: UploadTechnicalDetails.Sanitize(technicalDetails),
+            IsCommitAmbiguous: isCommitAmbiguous);
 
     private readonly record struct GraphRoute(string DriveId, string RootItemId);
+
+    private readonly record struct CommittedReceiptReadResult(
+        RemoteUploadReceipt? Receipt,
+        string? TechnicalDetails);
 
     private sealed record GraphItem(
         string Id,
         string Name,
         bool IsDirectory,
-        long Length,
+        long? Length,
         DateTimeOffset ModifiedAt,
         string? ETag)
     {
         public SharePointDriveItem ToSharePointDriveItem(string driveId) =>
-            new(Name, $"graph://{driveId}/{Id}", IsDirectory, Length, ModifiedAt);
+            new(Name, $"graph://{driveId}/{Id}", IsDirectory, Length ?? 0, ModifiedAt);
     }
 
     private sealed class NonDisposingReadStream(Stream inner) : Stream

@@ -471,6 +471,71 @@ public sealed class ContentIndexService
         return DeleteAsync(scopeKey, routeId, cancellationToken);
     }
 
+    public async Task<int> RemoveItemFromAllScopesAsync(
+        Guid routeId,
+        string relativePath,
+        bool isDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateRouteId(routeId);
+        var normalizedPath = NormalizeRelativePath(relativePath);
+        if (string.IsNullOrWhiteSpace(normalizedPath))
+        {
+            return 0;
+        }
+
+        var pathKey = CreatePathKey(normalizedPath);
+        var descendantPrefix = pathKey + "/";
+        await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var removed = 0;
+        await using (var access = connection.CreateCommand())
+        {
+            access.Transaction = (SqliteTransaction)transaction;
+            access.CommandText = isDirectory
+                ?
+                """
+                DELETE FROM ContentAccessStats
+                WHERE RouteId = $routeId
+                  AND (PathKey = $pathKey OR substr(PathKey, 1, length($prefix)) = $prefix);
+                """
+                :
+                """
+                DELETE FROM ContentAccessStats
+                WHERE RouteId = $routeId AND PathKey = $pathKey;
+                """;
+            access.Parameters.AddWithValue("$routeId", routeId.ToString());
+            access.Parameters.AddWithValue("$pathKey", pathKey);
+            access.Parameters.AddWithValue("$prefix", descendantPrefix);
+            await access.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await using (var content = connection.CreateCommand())
+        {
+            content.Transaction = (SqliteTransaction)transaction;
+            content.CommandText = isDirectory
+                ?
+                """
+                DELETE FROM IndexedContent
+                WHERE RouteId = $routeId
+                  AND (PathKey = $pathKey OR substr(PathKey, 1, length($prefix)) = $prefix);
+                """
+                :
+                """
+                DELETE FROM IndexedContent
+                WHERE RouteId = $routeId AND PathKey = $pathKey;
+                """;
+            content.Parameters.AddWithValue("$routeId", routeId.ToString());
+            content.Parameters.AddWithValue("$pathKey", pathKey);
+            content.Parameters.AddWithValue("$prefix", descendantPrefix);
+            removed = await content.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return removed;
+    }
+
     public async Task RemoveRouteFromAllScopesAsync(
         Guid routeId,
         CancellationToken cancellationToken = default)

@@ -31,6 +31,7 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
     private FileSystemHost? _host;
     private string? _mountedAt;
     private string? _routeSignature;
+    private bool _shutdownQuiesced;
     private IReadOnlyDictionary<Guid, string> _mountedRouteNames =
         new Dictionary<Guid, string>();
 
@@ -46,6 +47,11 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
     {
         lock (_gate)
         {
+            if (_shutdownQuiesced)
+            {
+                return Task.FromResult(CreateQuiescedStatus(settings));
+            }
+
             return Task.FromResult(EnsureState(settings, routes.ToArray()));
         }
     }
@@ -72,12 +78,66 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
         }
     }
 
+    public void QuiesceForShutdown()
+    {
+        lock (_gate)
+        {
+            if (_shutdownQuiesced)
+            {
+                return;
+            }
+
+            _shutdownQuiesced = true;
+            try
+            {
+                // WinFsp unmount/host disposal is synchronous: once this returns,
+                // no mounted filesystem callback can start another queue admission.
+                StopMountedHost();
+            }
+            catch
+            {
+                _shutdownQuiesced = false;
+                throw;
+            }
+        }
+    }
+
+    public Task<VirtualDriveStatus> ResumeAfterShutdownCancellationAsync(
+        AppSettings settings,
+        IReadOnlyCollection<DriveRoute> routes)
+    {
+        lock (_gate)
+        {
+            _shutdownQuiesced = false;
+            return Task.FromResult(EnsureState(settings, routes.ToArray()));
+        }
+    }
+
+    public void ReleaseShutdownQuiesce()
+    {
+        lock (_gate)
+        {
+            _shutdownQuiesced = false;
+        }
+    }
+
     public void Dispose()
     {
         lock (_gate)
         {
+            _shutdownQuiesced = true;
             StopMountedHost();
         }
+    }
+
+    private static VirtualDriveStatus CreateQuiescedStatus(AppSettings settings)
+    {
+        var mountPoint = NormalizeMountPoint(settings.MountPoint);
+        return new VirtualDriveStatus(
+            FormatDisplayRoot(mountPoint),
+            AppText.Get("VirtualDrivePausedTitle"),
+            AppText.Get("VirtualDrivePausedDetail"),
+            CanOpenInExplorer: false);
     }
 
     private VirtualDriveStatus EnsureState(AppSettings settings, IReadOnlyList<DriveRoute> routes)
@@ -200,27 +260,29 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
 
     private void StopMountedHost()
     {
-        if (_host is null)
+        var host = _host;
+        if (host is null)
         {
             return;
         }
 
+        // Clear published mount state before calling the native host. Even if
+        // native disposal fails, no later status check may reuse a torn-down host.
+        _host = null;
+        _mountedAt = null;
+        _routeSignature = null;
+        _mountedRouteNames = new Dictionary<Guid, string>();
+
         try
         {
-            _host.Unmount();
+            host.Unmount();
         }
         catch
         {
             // The driver may already have torn the mount down during process shutdown.
         }
-        finally
-        {
-            _host.Dispose();
-            _host = null;
-            _mountedAt = null;
-            _routeSignature = null;
-            _mountedRouteNames = new Dictionary<Guid, string>();
-        }
+
+        host.Dispose();
     }
 
     private static string BuildRouteSignature(IEnumerable<DriveRoute> routes) =>
@@ -324,7 +386,8 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
         private readonly FspFileInfo _rootInfo;
         private readonly IReadOnlyList<VirtualNode> _rootChildren;
         private readonly Dictionary<string, VirtualNode> _rootNodes;
-        private readonly ConcurrentDictionary<string, bool> _deleteOnClose = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, Guid> _stagedDeleteIntents =
+            new(StringComparer.OrdinalIgnoreCase);
 
         public EasyShareFileSystem(
             IReadOnlyList<DriveRoute> routes,
@@ -630,19 +693,48 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
 
         public override void Cleanup(object fileNode, object fileDesc, string fileName, uint flags)
         {
+            var writableHandle = fileDesc as WritableFileHandle;
+            var node = writableHandle is not null
+                ? writableHandle.Node
+                : fileNode as VirtualNode;
+            var deleteRequested = (flags & CleanupDelete) != 0;
+            if (deleteRequested && node is { IsRoot: false, Route: not null })
+            {
+                var intentKey = CreateDeleteIntentKey(node.Route.Id, node.RelativePath);
+                try
+                {
+                    if (!_stagedDeleteIntents.TryGetValue(intentKey, out var intentId))
+                    {
+                        StartupDiagnostics.Write(
+                            "WinFsp CleanupDelete had no persisted SetDelete intent.");
+                        return;
+                    }
+
+                    if (_uploadQueue.ArmDeleteIntent(intentId))
+                    {
+                        writableHandle?.MarkDeletePending();
+                        _stagedDeleteIntents.TryRemove(intentKey, out _);
+                    }
+                    else
+                    {
+                        StartupDiagnostics.Write(
+                            "WinFsp CleanupDelete could not arm its persisted intent.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Cleanup is void. The durable accepted row remains unarmed
+                    // for startup recovery, while Close may still flush this
+                    // handle because delete-pending was not marked.
+                    StartupDiagnostics.Write("Arming a WinFsp delete intent failed.", ex);
+                }
+
+                return;
+            }
+
             if (fileDesc is WritableFileHandle handle)
             {
                 FlushWritableHandle(handle, out _);
-            }
-
-            var node = fileDesc is WritableFileHandle writableHandle
-                ? writableHandle.Node
-                : fileNode as VirtualNode;
-            if (node is { IsRoot: false, Route: not null } &&
-                _deleteOnClose.TryRemove(node.Path, out var shouldDelete) &&
-                shouldDelete)
-            {
-                _contentService.DeleteItem(node.Route, node.RelativePath, node.IsDirectory);
             }
         }
 
@@ -664,8 +756,48 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
                 return STATUS_ACCESS_DENIED;
             }
 
-            _deleteOnClose[node.Path] = deleteFile;
-            return STATUS_SUCCESS;
+            var intentKey = CreateDeleteIntentKey(node.Route.Id, node.RelativePath);
+            if (deleteFile)
+            {
+                try
+                {
+                    // SetDelete may report success only after SQLite has the
+                    // non-armed intent. No remote operation occurs on this path.
+                    var intent = _uploadQueue.PrepareDeleteIntent(
+                        node.Route,
+                        node.RelativePath,
+                        node.IsDirectory);
+                    _stagedDeleteIntents[intentKey] = intent.Id;
+                    return STATUS_SUCCESS;
+                }
+                catch (Exception ex)
+                {
+                    StartupDiagnostics.Write("Persisting a WinFsp delete intent failed.", ex);
+                    return STATUS_ACCESS_DENIED;
+                }
+            }
+
+            if (!_stagedDeleteIntents.TryGetValue(intentKey, out var stagedIntentId))
+            {
+                return STATUS_SUCCESS;
+            }
+
+            try
+            {
+                if (!_uploadQueue.CancelDeleteIntent(stagedIntentId))
+                {
+                    return STATUS_ACCESS_DENIED;
+                }
+
+                _stagedDeleteIntents.TryRemove(intentKey, out _);
+                return STATUS_SUCCESS;
+            }
+            catch (Exception ex)
+            {
+                // The intent remains non-armed and therefore cannot execute.
+                StartupDiagnostics.Write("Canceling a WinFsp delete intent failed.", ex);
+                return STATUS_ACCESS_DENIED;
+            }
         }
 
         public override int Rename(
@@ -718,7 +850,6 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
                 return STATUS_ACCESS_DENIED;
             }
 
-            _deleteOnClose.TryRemove(node.Path, out _);
             return STATUS_SUCCESS;
         }
 
@@ -782,7 +913,7 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
         private int FlushWritableHandle(WritableFileHandle handle, out FspFileInfo fileInfo)
         {
             fileInfo = handle.Info;
-            if (!handle.IsDirty)
+            if (!handle.IsDirty || handle.IsDeletePending)
             {
                 return STATUS_SUCCESS;
             }
@@ -792,14 +923,22 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
                 return STATUS_ACCESS_DENIED;
             }
 
-            var bytes = handle.ToArray(_contentService);
-            _contentService.CacheLocalFile(handle.Node.Route, handle.Node.RelativePath, bytes);
-            _uploadQueue.Enqueue(
-                handle.Node.Route,
-                handle.Node.RelativePath,
-                bytes,
-                handle.ExpectedModifiedAt);
-            handle.MarkUploaded();
+            try
+            {
+                var bytes = handle.ToArray(_contentService);
+                _contentService.CacheLocalFile(handle.Node.Route, handle.Node.RelativePath, bytes);
+                _uploadQueue.Enqueue(
+                    handle.Node.Route,
+                    handle.Node.RelativePath,
+                    bytes,
+                    handle.ExpectedModifiedAt);
+                handle.MarkUploaded();
+            }
+            catch (Exception ex)
+            {
+                StartupDiagnostics.Write("Queueing a virtual-drive upload failed.", ex);
+                return STATUS_ACCESS_DENIED;
+            }
 
             fileInfo = handle.Info;
             return STATUS_SUCCESS;
@@ -1056,6 +1195,9 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
             return index < 0 ? normalized : normalized[(index + 1)..];
         }
 
+        private static string CreateDeleteIntentKey(Guid routeId, string relativePath) =>
+            $"{routeId:N}:{relativePath.Replace('\\', '/').Trim('/')}";
+
     }
 
     private sealed class WritableFileHandle
@@ -1080,6 +1222,8 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
         public DateTimeOffset? ExpectedModifiedAt { get; }
 
         public bool IsDirty { get; private set; }
+
+        public bool IsDeletePending { get; private set; }
 
         public void Write(
             SharePointBrowserContentService contentService,
@@ -1190,6 +1334,12 @@ public sealed class VirtualDriveService : IVirtualDriveService, IDisposable
 
         public void MarkUploaded()
         {
+            IsDirty = false;
+        }
+
+        public void MarkDeletePending()
+        {
+            IsDeletePending = true;
             IsDirty = false;
         }
 

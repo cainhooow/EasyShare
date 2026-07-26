@@ -4,7 +4,6 @@ using EasyShare.Models;
 using EasyShare.Resources;
 using EasyShare.Controls;
 using System.ComponentModel;
-using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -92,6 +91,9 @@ public sealed partial class MainPage : Page
         ContentAssistant.OpenRequested += ContentAssistant_OpenRequested;
         OperationsCenter.Initialize(_operationsViewModel);
         OperationsCenter.RetryRequested += OperationsCenter_RetryRequested;
+        OperationsCenter.ExportRequested += OperationsCenter_ExportRequested;
+        OperationsCenter.DetailsRequested += OperationsCenter_DetailsRequested;
+        OperationsCenter.ClearCompletedRequested += OperationsCenter_ClearCompletedRequested;
         OperationsCenter.ConflictResolutionRequested += OperationsCenter_ConflictResolutionRequested;
         OperationsCenter.HealthRefreshRequested += OperationsCenter_HealthRefreshRequested;
         OperationsCenter.SupportExportRequested += OperationsCenter_SupportExportRequested;
@@ -136,6 +138,15 @@ public sealed partial class MainPage : Page
         SharePointExplorer.PinRequested -= SharePointExplorer_PinRequested;
         SharePointExplorer.ManualRouteRequested -= SharePointExplorer_ManualRouteRequested;
         ContentAssistant.OpenRequested -= ContentAssistant_OpenRequested;
+        OperationsCenter.RetryRequested -= OperationsCenter_RetryRequested;
+        OperationsCenter.ExportRequested -= OperationsCenter_ExportRequested;
+        OperationsCenter.DetailsRequested -= OperationsCenter_DetailsRequested;
+        OperationsCenter.ClearCompletedRequested -= OperationsCenter_ClearCompletedRequested;
+        OperationsCenter.ConflictResolutionRequested -= OperationsCenter_ConflictResolutionRequested;
+        OperationsCenter.HealthRefreshRequested -= OperationsCenter_HealthRefreshRequested;
+        OperationsCenter.SupportExportRequested -= OperationsCenter_SupportExportRequested;
+        OperationsCenter.OfflinePinRequested -= OperationsCenter_OfflinePinRequested;
+        OperationsCenter.OfflineRemoveRequested -= OperationsCenter_OfflineRemoveRequested;
         _sharePointExplorerViewModel.Dispose();
         _contentAssistantViewModel.Dispose();
         _operationsViewModel.Dispose();
@@ -158,17 +169,42 @@ public sealed partial class MainPage : Page
                     await ViewModel.LoadAsync();
                     ApplyAppearance();
                     _browserContent.ConfigureCache(TimeSpan.FromMinutes(ViewModel.CacheMinutes));
-                    _uploadQueue.Start();
                     await RestoreBrowserSessionOnStartupAsync();
                     await RefreshSharePointExplorerContextAsync();
+#if DEBUG
+                    var disableUploadWorkerForVisualTest =
+                        DebugVisualTestIsolation.DisableUploadWorker;
+                    if (!disableUploadWorkerForVisualTest)
+                    {
+#endif
+                    _uploadQueue.Start();
+                    if (ViewModel.IsContentIdentityAvailable)
+                    {
+                        _uploadQueue.SignalSessionRestored();
+                    }
+#if DEBUG
+                    }
+                    else
+                    {
+                        StartupDiagnostics.Write(
+                            "Upload worker disabled by the isolated DEBUG visual-test environment.");
+                    }
+#endif
                     await RefreshOperationsHealthAsync();
+                    if (App.MainWindow is MainWindow mainWindow)
+                    {
+                        await mainWindow.RefreshTrayUploadStatusAsync();
+                    }
                 },
                 "LoadingStartupTitle",
                 "LoadingStartupMessage");
             ApplyStartupWindowState();
             ConfigureBrowserKeepAliveTimer();
             await ShowSetupWizardIfNeededAsync();
-            _ = CheckUpdatesOnStartupAsync();
+            if (!DebugVisualTestIsolation.IsActive)
+            {
+                _ = CheckUpdatesOnStartupAsync();
+            }
 
             StartupDiagnostics.Write("MainPage startup completed.");
         }
@@ -205,6 +241,16 @@ public sealed partial class MainPage : Page
             nameof(ViewModel.HighContrastEnabled))
         {
             ApplyAppearance();
+        }
+
+        if ((e.PropertyName == nameof(ViewModel.IsContentIdentityAvailable) &&
+             ViewModel.IsContentIdentityAvailable) ||
+            (e.PropertyName == nameof(ViewModel.IsBrowserSessionVerified) &&
+             ViewModel.IsBrowserSessionVerified) ||
+            (e.PropertyName == nameof(ViewModel.IsGraphAuthenticated) &&
+             ViewModel.IsGraphAuthenticated))
+        {
+            _uploadQueue.SignalSessionRestored();
         }
 
         if (e.PropertyName is nameof(ViewModel.ClientId) or
@@ -881,27 +927,88 @@ public sealed partial class MainPage : Page
             return;
         }
 
-        var dialog = new ContentDialog
+        var route = ViewModel.Routes.FirstOrDefault(item => item.Id == routeId);
+        if (route is null)
         {
-            Title = AppText.Get("RemoveRouteDialogTitle"),
-            Content = AppText.Get("RemoveRouteDialogMessage"),
-            PrimaryButtonText = AppText.Get("ActionRemove"),
-            CloseButtonText = AppText.Get("CommonCancel"),
-            DefaultButton = ContentDialogButton.Close,
-            XamlRoot = XamlRoot
-        };
+            return;
+        }
 
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        var routeRemovalMarked = false;
+        try
         {
-            var route = ViewModel.Routes.FirstOrDefault(item => item.Id == routeId);
-            if (route is not null)
+            var activeCount = await _uploadQueue.GetActiveJobCountAsync(routeId);
+            var preservePendingCopies = false;
+            if (activeCount > 0)
             {
-                _browserContent.InvalidateRoute(route);
+                var protectedDialog = new ContentDialog
+                {
+                    Title = AppText.Get("RemoveRouteUploadsTitle"),
+                    Content = AppText.Format(
+                        "RemoveRouteUploadsMessageFormat",
+                        route.DisplayName,
+                        activeCount),
+                    PrimaryButtonText = AppText.Get("ActionFinishUploadsFirst"),
+                    SecondaryButtonText = AppText.Get("ActionRemovePreserveCopies"),
+                    CloseButtonText = AppText.Get("CommonCancel"),
+                    DefaultButton = ContentDialogButton.Primary,
+                    XamlRoot = XamlRoot
+                };
+                var protectedResult = await protectedDialog.ShowAsync();
+                if (protectedResult == ContentDialogResult.Primary)
+                {
+                    SelectNavigationItem("Sync");
+                    OperationsCenter.SelectTransfers();
+                    return;
+                }
+
+                if (protectedResult != ContentDialogResult.Secondary)
+                {
+                    return;
+                }
+
+                var strongConfirmation = new ContentDialog
+                {
+                    Title = AppText.Get("RemoveRouteStrongTitle"),
+                    Content = AppText.Format("RemoveRouteStrongMessageFormat", route.DisplayName),
+                    PrimaryButtonText = AppText.Get("ActionRemoveAnyway"),
+                    CloseButtonText = AppText.Get("CommonCancel"),
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = XamlRoot
+                };
+                if (await strongConfirmation.ShowAsync() != ContentDialogResult.Primary)
+                {
+                    return;
+                }
+
+                preservePendingCopies = true;
+            }
+            else
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = AppText.Get("RemoveRouteDialogTitle"),
+                    Content = AppText.Get("RemoveRouteDialogMessage"),
+                    PrimaryButtonText = AppText.Get("ActionRemove"),
+                    CloseButtonText = AppText.Get("CommonCancel"),
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = XamlRoot
+                };
+                if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+                {
+                    return;
+                }
             }
 
+            _browserContent.InvalidateRoute(route);
             await RunWithLoadingAsync(
                 async () =>
                 {
+                    if (preservePendingCopies)
+                    {
+                        routeRemovalMarked = true;
+                        await _uploadQueue.MarkRouteRemovedAsync(routeId);
+                    }
+
                     await App.Services.ContentIndex.RemoveRouteFromAllScopesAsync(routeId);
                     await ViewModel.RemoveRouteAsync(routeId);
                 },
@@ -910,6 +1017,35 @@ public sealed partial class MainPage : Page
             await RefreshSharePointExplorerContextAsync();
             ShowActionMessage(AppText.Get("RouteRemovedTitle"), AppText.Get("RouteRemovedMessage"), InfoBarSeverity.Success);
         }
+        catch (Exception ex)
+        {
+            if (routeRemovalMarked &&
+                ViewModel.Routes.Any(item => item.Id == routeId))
+            {
+                try
+                {
+                    await _uploadQueue.RestoreRouteAdmissionAsync(routeId);
+                }
+                catch (Exception restoreException)
+                {
+                    StartupDiagnostics.Write(
+                        "Restoring upload admission after route removal rollback failed.",
+                        restoreException);
+                }
+            }
+
+            StartupDiagnostics.Write("Removing a pinned route safely failed.", ex);
+            ShowActionMessage(
+                AppText.Get("OperationFailedTitle"),
+                AppText.Get("RemoveRouteFailedMessage"),
+                InfoBarSeverity.Error);
+        }
+    }
+
+    private void OpenUploadsButton_Click(object sender, RoutedEventArgs e)
+    {
+        SelectNavigationItem("Sync");
+        OperationsCenter.SelectTransfers();
     }
 
     private void RootNavigation_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
@@ -942,7 +1078,7 @@ public sealed partial class MainPage : Page
         }
 
         HomeView.Visibility = tag == "Home" ? Visibility.Visible : Visibility.Collapsed;
-        SharePointExplorer.Visibility = tag == "Explorer" ? Visibility.Visible : Visibility.Collapsed;
+        ExplorerView.Visibility = tag == "Explorer" ? Visibility.Visible : Visibility.Collapsed;
         ContentAssistant.Visibility = tag == "Assistant" ? Visibility.Visible : Visibility.Collapsed;
         RoutesView.Visibility = tag == "Routes" ? Visibility.Visible : Visibility.Collapsed;
         OperationsCenter.Visibility = tag == "Sync" ? Visibility.Visible : Visibility.Collapsed;
@@ -1510,6 +1646,12 @@ public sealed partial class MainPage : Page
 
     private async void OperationsCenter_RetryRequested(Guid jobId)
     {
+        var job = ViewModel.SyncJobs.FirstOrDefault(item => item.Id == jobId);
+        if (job is null || !job.CanRetry)
+        {
+            return;
+        }
+
         try
         {
             await _uploadQueue.RetryAsync(jobId);
@@ -1517,7 +1659,178 @@ public sealed partial class MainPage : Page
         catch (Exception ex)
         {
             StartupDiagnostics.Write("Retrying an upload failed.", ex);
-            ShowActionMessage(AppText.Get("OperationFailedTitle"), ex.Message, InfoBarSeverity.Error);
+            ShowActionMessage(
+                AppText.Get("OperationFailedTitle"),
+                string.IsNullOrWhiteSpace(job.RecommendedActionText)
+                    ? AppText.Get("OperationFailedMessage")
+                    : job.RecommendedActionText,
+                InfoBarSeverity.Error);
+        }
+    }
+
+    private async void OperationsCenter_ExportRequested(Guid jobId)
+    {
+        var job = ViewModel.SyncJobs.FirstOrDefault(item => item.Id == jobId);
+        if (job is null || !job.CanExport)
+        {
+            return;
+        }
+
+        try
+        {
+            var destination = await PickNewFileAsync(
+                job.FileName,
+                AppText.Get("UploadExportTypeLabel"));
+            if (destination is null)
+            {
+                return;
+            }
+
+            SyncConflictActionResult? result = null;
+            await RunWithLoadingAsync(
+                async () =>
+                {
+                    result = await _uploadQueue.ExportLocalPayloadAsync(jobId, destination);
+                },
+                "LoadingSaveTitle",
+                "LoadingSaveMessage");
+
+            if (result?.Succeeded == true)
+            {
+                ShowActionMessage(
+                    AppText.Get("ConflictExportedTitle"),
+                    AppText.Format("UploadExportedMessageFormat", job.FileName),
+                    InfoBarSeverity.Success);
+                return;
+            }
+
+            ShowActionMessage(
+                AppText.Get("OperationFailedTitle"),
+                result?.Error ?? job.RecommendedActionText,
+                InfoBarSeverity.Error);
+        }
+        catch (Exception ex)
+        {
+            StartupDiagnostics.Write("Exporting a recoverable upload payload failed.", ex);
+            ShowActionMessage(
+                AppText.Get("OperationFailedTitle"),
+                job.RecommendedActionText,
+                InfoBarSeverity.Error);
+        }
+    }
+
+    private async void OperationsCenter_DetailsRequested(Guid jobId)
+    {
+        var job = ViewModel.SyncJobs.FirstOrDefault(item => item.Id == jobId);
+        if (job is null)
+        {
+            return;
+        }
+
+        var content = new StackPanel
+        {
+            Spacing = 10
+        };
+        content.Children.Add(new TextBlock
+        {
+            Text = AppText.Get("UploadDetailsStateLabel"),
+            Style = Application.Current.Resources["BodyStrongTextBlockStyle"] as Style
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = string.Join(
+                Environment.NewLine,
+                new[] { job.StateText, job.ProgressText, job.NextAttemptText, job.FailureSummary }
+                    .Where(value => !string.IsNullOrWhiteSpace(value))),
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        if (!string.IsNullOrWhiteSpace(job.RecommendedActionText))
+        {
+            content.Children.Add(new TextBlock
+            {
+                Text = AppText.Get("UploadDetailsRecommendationLabel"),
+                Style = Application.Current.Resources["BodyStrongTextBlockStyle"] as Style
+            });
+            content.Children.Add(new TextBlock
+            {
+                Text = job.RecommendedActionText,
+                TextWrapping = TextWrapping.Wrap
+            });
+        }
+
+        if (!string.IsNullOrWhiteSpace(job.TechnicalDetails))
+        {
+            content.Children.Add(new Expander
+            {
+                Header = AppText.Get("UploadDetailsTechnicalHeader"),
+                IsExpanded = false,
+                Content = new TextBlock
+                {
+                    Text = job.TechnicalDetails,
+                    FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
+                    IsTextSelectionEnabled = true,
+                    TextWrapping = TextWrapping.Wrap
+                }
+            });
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = AppText.Format("UploadDetailsTitleFormat", job.FileName),
+            Content = content,
+            CloseButtonText = AppText.Get("CommonOk"),
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot
+        };
+        await dialog.ShowAsync();
+    }
+
+    private async void OperationsCenter_ClearCompletedRequested()
+    {
+        var completedCount = ViewModel.CompletedUploadCount;
+        if (completedCount == 0)
+        {
+            return;
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = AppText.Get("ClearCompletedDialogTitle"),
+            Content = AppText.Format("ClearCompletedDialogMessageFormat", completedCount),
+            PrimaryButtonText = AppText.Get("ActionClearCompleted"),
+            CloseButtonText = AppText.Get("CommonCancel"),
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        try
+        {
+            var removedCount = 0;
+            await RunWithLoadingAsync(
+                async () =>
+                {
+                    removedCount = await _uploadQueue.ClearCompletedAsync();
+                },
+                "LoadingSaveTitle",
+                "LoadingSaveMessage");
+            ViewModel.RemoveCompletedSyncJobs();
+            ShowActionMessage(
+                AppText.Get("ClearCompletedDoneTitle"),
+                AppText.Format("ClearCompletedDoneMessageFormat", removedCount),
+                InfoBarSeverity.Success);
+        }
+        catch (Exception ex)
+        {
+            StartupDiagnostics.Write("Clearing completed uploads failed.", ex);
+            ShowActionMessage(
+                AppText.Get("OperationFailedTitle"),
+                AppText.Get("OperationFailedMessage"),
+                InfoBarSeverity.Error);
         }
     }
 
@@ -1619,7 +1932,10 @@ public sealed partial class MainPage : Page
         catch (Exception ex)
         {
             StartupDiagnostics.Write("Resolving a synchronization conflict failed.", ex);
-            ShowActionMessage(AppText.Get("OperationFailedTitle"), ex.Message, InfoBarSeverity.Error);
+            ShowActionMessage(
+                AppText.Get("OperationFailedTitle"),
+                AppText.Get("OperationFailedMessage"),
+                InfoBarSeverity.Error);
         }
     }
 
@@ -1782,6 +2098,10 @@ public sealed partial class MainPage : Page
 
             switch (activation.Destination)
             {
+                case "Transfers":
+                    SelectNavigationItem("Sync");
+                    OperationsCenter.SelectTransfers();
+                    break;
                 case "Conflicts":
                     SelectNavigationItem("Sync");
                     OperationsCenter.SelectConflicts();
@@ -1874,7 +2194,7 @@ public sealed partial class MainPage : Page
                     "upload-failed",
                     AppText.Get("NotificationUploadFailedTitle"),
                     AppText.Get("NotificationUploadFailedMessage"),
-                    "Conflicts",
+                    "Transfers",
                     job.Id.ToString("N"));
                 break;
             case SyncJobState.Completed when ViewModel.NotifyUploadCompleted:
@@ -1984,6 +2304,7 @@ public sealed partial class MainPage : Page
             PlaceCard(AccountCard, row: 0, column: 0, columnSpan: 1);
             PlaceCard(VirtualRootCard, row: 0, column: 1, columnSpan: 1);
             PlaceCard(RoutesCountCard, row: 0, column: 2, columnSpan: 1);
+            PlaceCard(UploadsStatusCard, row: 1, column: 0, columnSpan: 3);
             return;
         }
 
@@ -1996,6 +2317,7 @@ public sealed partial class MainPage : Page
             PlaceCard(AccountCard, row: 0, column: 0, columnSpan: 1);
             PlaceCard(VirtualRootCard, row: 0, column: 1, columnSpan: 1);
             PlaceCard(RoutesCountCard, row: 1, column: 0, columnSpan: 2);
+            PlaceCard(UploadsStatusCard, row: 2, column: 0, columnSpan: 2);
             return;
         }
 
@@ -2006,6 +2328,7 @@ public sealed partial class MainPage : Page
         PlaceCard(AccountCard, row: 0, column: 0, columnSpan: 1);
         PlaceCard(VirtualRootCard, row: 1, column: 0, columnSpan: 1);
         PlaceCard(RoutesCountCard, row: 2, column: 0, columnSpan: 1);
+        PlaceCard(UploadsStatusCard, row: 3, column: 0, columnSpan: 1);
     }
 
     private void ApplyResponsivePageLayouts(double width)
@@ -2126,14 +2449,9 @@ public sealed partial class MainPage : Page
             return;
         }
 
-        var hwnd = WindowNative.GetWindowHandle(App.MainWindow);
-        ShowWindow(hwnd, 6);
         if (App.MainWindow is MainWindow mainWindow)
         {
-            mainWindow.HideToTray();
+            mainWindow.MinimizeToTrayForStartup();
         }
     }
-
-    [DllImport("user32.dll")]
-    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 }
